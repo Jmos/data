@@ -9,8 +9,8 @@ use Atk4\Data\Exception;
 use Atk4\Data\Model;
 use Atk4\Data\Persistence;
 use Atk4\Data\Persistence\Array_\Action;
-use Atk4\Data\Persistence\Array_\Db\Row;
-use Atk4\Data\Persistence\Array_\Db\Table;
+use Atk4\Data\Persistence\Array_\Generator\RowArray;
+use Atk4\Data\Persistence\Array_\Generator\TableArray;
 
 /**
  * Implements persistence driver that can save data into array and load
@@ -22,7 +22,7 @@ class Array_ extends Persistence
     /** @var array */
     private $seedData;
 
-    /** @var array<string, Table> */
+    /** @var array<string, TableArray> */
     private $data;
 
     /** @var array<string, int> */
@@ -55,7 +55,7 @@ class Array_ extends Persistence
             return;
         }
 
-        $this->data[$tableName] = new Table($tableName);
+        $this->data[$tableName] = new TableArray($tableName);
 
         if (isset($this->seedData[$tableName])) {
             $rows = $this->seedData[$tableName];
@@ -81,7 +81,7 @@ class Array_ extends Persistence
         }
     }
 
-    private function seedDataAndGetTable(Model $model): Table
+    private function seedDataAndGetTable(Model $model): TableArray
     {
         $this->seedData($model);
 
@@ -150,7 +150,7 @@ class Array_ extends Persistence
             }
             $row->updateValues($rowData);
         } else {
-            $row = $table->addRow(Row::class, $rowData);
+            $row = $table->addRow(RowArray::class, $rowData);
         }
     }
 
@@ -207,19 +207,15 @@ class Array_ extends Persistence
         $table = $this->seedDataAndGetTable($model);
 
         if ($id === self::ID_LOAD_ONE || $id === self::ID_LOAD_ANY) {
-            $action = $this->action($model, 'select');
-            $action->generator->rewind(); // TODO needed for some reasons!
-
-            $selectRow = $action->getRow();
-            if ($selectRow === null) {
+            if (iterator_count($table->getRows()) === 0) {
                 return null;
-            } elseif ($id === self::ID_LOAD_ONE && $action->getRow() !== null) {
+            } elseif ($id === self::ID_LOAD_ONE && iterator_count($table->getRows()) !== 1) {
                 throw (new Exception('Ambiguous conditions, more than one record can be loaded.'))
                     ->addMoreInfo('model', $model)
                     ->addMoreInfo('id', null);
             }
 
-            $id = $selectRow[$model->id_field];
+            $id = $table->getRows()->current()->getValue($model->id_field); // @phpstan-ignore-line
 
             $row = $this->tryLoad($model, $id);
 
