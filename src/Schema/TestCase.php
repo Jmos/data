@@ -8,6 +8,7 @@ use Atk4\Core\Phpunit\TestCase as BaseTestCase;
 use Atk4\Data\Model;
 use Atk4\Data\Persistence;
 use Atk4\Data\Persistence\Sql\Expression;
+use Atk4\Data\Reference;
 use Doctrine\DBAL\ParameterType;
 use Doctrine\DBAL\Platforms\AbstractPlatform;
 use Doctrine\DBAL\Platforms\MySQLPlatform;
@@ -57,6 +58,18 @@ abstract class TestCase extends BaseTestCase
             $this->dropCreatedDb();
         } finally {
             $this->debug = $debugOrig;
+        }
+
+        if (\PHP_VERSION_ID < 80300) {
+            // workaround https://github.com/php/php-src/issues/10043
+            \Closure::bind(static function () {
+                if ((Reference::$analysingClosureMap ?? null) !== null) {
+                    Reference::$analysingClosureMap = new Reference\WeakAnalysingMap();
+                }
+                if ((Reference::$analysingTheirModelMap ?? null) !== null) {
+                    Reference::$analysingTheirModelMap = new Reference\WeakAnalysingMap();
+                }
+            }, null, Reference::class)();
         }
 
         parent::tearDown();
@@ -153,7 +166,7 @@ abstract class TestCase extends BaseTestCase
                     return ':' . ($platform instanceof OraclePlatform ? 'xxaaa' : '') . $matches[1];
                 }
 
-                $str = substr(preg_replace('~\\\\(.)~s', '$1', $matches[0]), 1, -1);
+                $str = substr(preg_replace('~\\\(.)~s', '$1', $matches[0]), 1, -1);
                 if (substr($matches[0], 0, 1) === '`') {
                     return $platform->quoteSingleIdentifier($str);
                 }
@@ -179,6 +192,11 @@ abstract class TestCase extends BaseTestCase
                 $actualSqlPrev = $actualSql;
                 $actualSql = preg_replace('~case when typeof\((.+?)\) in \(\'integer\', \'real\'\) then cast\(\1 as numeric\) (.{1,20}?) (.+?) else \1 \2 \3 end~s', '$1 $2 $3', $actualSql);
                 $actualSql = preg_replace('~case when typeof\((.+?)\) in \(\'integer\', \'real\'\) then (.+?) (.{1,20}?) cast\(\1 as numeric\) else \2 \3 \1 end~s', '$2 $3 $1', $actualSql);
+            } while ($actualSql !== $actualSqlPrev);
+            do {
+                $actualSqlPrev = $actualSql;
+                $actualSql = preg_replace('~\(select `__atk4_affinity_left__` (.{1,20}?) `__atk4_affinity_right__` from \(select (.+?) `__atk4_affinity_left__`, (.+?) `__atk4_affinity_right__`\) `__atk4_affinity_tmp__`\)~s', '$2 $1 $3', $actualSql);
+                $actualSql = preg_replace('~\(select `__atk4_affinity_left__` (.{1,20}?) (.+?) from \(select (.+?) `__atk4_affinity_left__`\) `__atk4_affinity_tmp__`\)~s', '$3 $1 $2', $actualSql);
             } while ($actualSql !== $actualSqlPrev);
         }
 
