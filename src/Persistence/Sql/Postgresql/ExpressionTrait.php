@@ -4,10 +4,51 @@ declare(strict_types=1);
 
 namespace Atk4\Data\Persistence\Sql\Postgresql;
 
+use Atk4\Data\Persistence;
 use Doctrine\DBAL\Statement;
 
 trait ExpressionTrait
 {
+    #[\Override]
+    protected function escapeStringLiteral(string $value): string
+    {
+        $dummyPersistence = (new \ReflectionClass(Persistence\Sql::class))->newInstanceWithoutConstructor();
+        if (\Closure::bind(static fn () => $dummyPersistence->binaryTypeValueIsEncoded($value), null, Persistence\Sql::class)()) {
+            $value = \Closure::bind(static fn () => $dummyPersistence->binaryTypeValueDecode($value), null, Persistence\Sql::class)();
+
+            return 'decode(\'' . bin2hex($value) . '\', \'hex\')';
+        }
+
+        $parts = [];
+        foreach (explode("\0", $value) as $i => $v) {
+            if ($i > 0) {
+                // will raise SQL error, PostgreSQL does not support \0 character
+                $parts[] = 'convert_from(decode(\'00\', \'hex\'), \'UTF8\')';
+            }
+
+            if ($v !== '') {
+                $parts[] = '\'' . str_replace('\'', '\'\'', $v) . '\'';
+            }
+        }
+
+        if ($parts === []) {
+            $parts = ['\'\''];
+        }
+
+        $buildConcatSqlFx = static function (array $parts) use (&$buildConcatSqlFx): string {
+            if (count($parts) > 1) {
+                $partsLeft = array_slice($parts, 0, intdiv(count($parts), 2));
+                $partsRight = array_slice($parts, count($partsLeft));
+
+                return 'CONCAT(' . $buildConcatSqlFx($partsLeft) . ', ' . $buildConcatSqlFx($partsRight) . ')';
+            }
+
+            return reset($parts);
+        };
+
+        return $buildConcatSqlFx($parts);
+    }
+
     #[\Override]
     protected function updateRenderBeforeExecute(array $render): array
     {

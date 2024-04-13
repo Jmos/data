@@ -11,7 +11,6 @@ use Doctrine\DBAL\Exception as DbalException;
 use Doctrine\DBAL\ParameterType;
 use Doctrine\DBAL\Platforms\OraclePlatform;
 use Doctrine\DBAL\Platforms\PostgreSQLPlatform;
-use Doctrine\DBAL\Platforms\SQLitePlatform;
 use Doctrine\DBAL\Platforms\SQLServerPlatform;
 use Doctrine\DBAL\Result as DbalResult;
 use Doctrine\DBAL\Statement;
@@ -237,67 +236,7 @@ abstract class Expression implements Expressionable, \ArrayAccess
     /**
      * This method should be used only when string value cannot be bound.
      */
-    protected function escapeStringLiteral(string $value): string
-    {
-        $platform = $this->connection->getDatabasePlatform();
-        if ($platform instanceof PostgreSQLPlatform || $platform instanceof SQLServerPlatform) {
-            $dummyPersistence = new Persistence\Sql($this->connection);
-            if (\Closure::bind(static fn () => $dummyPersistence->binaryTypeValueIsEncoded($value), null, Persistence\Sql::class)()) {
-                $value = \Closure::bind(static fn () => $dummyPersistence->binaryTypeValueDecode($value), null, Persistence\Sql::class)();
-
-                if ($platform instanceof PostgreSQLPlatform) {
-                    return 'decode(\'' . bin2hex($value) . '\', \'hex\')';
-                }
-
-                return 'CONVERT(VARBINARY(MAX), \'' . bin2hex($value) . '\', 2)';
-            }
-        }
-
-        $parts = [];
-        foreach (explode("\0", $value) as $i => $v) {
-            if ($i > 0) {
-                if ($platform instanceof PostgreSQLPlatform) {
-                    // will raise SQL error, PostgreSQL does not support \0 character
-                    $parts[] = 'convert_from(decode(\'00\', \'hex\'), \'UTF8\')';
-                } elseif ($platform instanceof SQLServerPlatform) {
-                    $parts[] = 'NCHAR(0)';
-                } elseif ($platform instanceof OraclePlatform) {
-                    $parts[] = 'CHR(0)';
-                } else {
-                    $parts[] = 'x\'00\'';
-                }
-            }
-
-            if ($v !== '') {
-                $parts[] = '\'' . str_replace('\'', '\'\'', $v) . '\'';
-            }
-        }
-        if ($parts === []) {
-            $parts = ['\'\''];
-        }
-
-        $buildConcatSqlFx = static function (array $parts) use (&$buildConcatSqlFx, $platform): string {
-            if (count($parts) > 1) {
-                $partsLeft = array_slice($parts, 0, intdiv(count($parts), 2));
-                $partsRight = array_slice($parts, count($partsLeft));
-
-                $sqlLeft = $buildConcatSqlFx($partsLeft);
-                if ($platform instanceof SQLServerPlatform && count($partsLeft) === 1) {
-                    $sqlLeft = 'CAST(' . $sqlLeft . ' AS NVARCHAR(MAX))';
-                }
-
-                return ($platform instanceof SQLitePlatform ? '(' : 'CONCAT(')
-                    . $sqlLeft
-                    . ($platform instanceof SQLitePlatform ? ' || ' : ', ')
-                    . $buildConcatSqlFx($partsRight)
-                    . ')';
-            }
-
-            return reset($parts);
-        };
-
-        return $buildConcatSqlFx($parts);
-    }
+    abstract protected function escapeStringLiteral(string $value): string;
 
     /**
      * Escapes identifier from argument.
@@ -611,13 +550,13 @@ abstract class Expression implements Expressionable, \ArrayAccess
                     $type = ParameterType::STRING;
 
                     if ($platform instanceof PostgreSQLPlatform || $platform instanceof SQLServerPlatform) {
-                        $dummyPersistence = new Persistence\Sql($this->connection);
+                        $dummyPersistence = (new \ReflectionClass(Persistence\Sql::class))->newInstanceWithoutConstructor();
                         if (\Closure::bind(static fn () => $dummyPersistence->binaryTypeValueIsEncoded($val), null, Persistence\Sql::class)()) {
                             $val = \Closure::bind(static fn () => $dummyPersistence->binaryTypeValueDecode($val), null, Persistence\Sql::class)();
                             $type = ParameterType::BINARY;
                         }
                     }
-                } elseif (is_resource($val)) { // phpstan-ignore-line
+                } elseif (is_resource($val)) {
                     throw new Exception('Resource type is not supported, set value as string instead');
                 } else {
                     throw (new Exception('Unsupported param type'))

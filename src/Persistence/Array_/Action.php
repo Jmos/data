@@ -190,16 +190,6 @@ class Action
                 $result = !$this->evaluateIf($v1, '=', $v2);
 
                 break;
-            case 'LIKE':
-                $pattern = str_ireplace('%', '(.*?)', preg_quote($v2, '~'));
-
-                $result = (bool) preg_match('~^' . $pattern . '$~', (string) $v1);
-
-                break;
-            case 'NOT LIKE':
-                $result = !$this->evaluateIf($v1, 'LIKE', $v2);
-
-                break;
             case 'IN':
                 $result = false;
                 foreach ($v2 as $v2Item) { // TODO flatten rows, this looses column names!
@@ -215,8 +205,18 @@ class Action
                 $result = !$this->evaluateIf($v1, 'IN', $v2);
 
                 break;
+            case 'LIKE':
+                $pattern = str_replace('_', '(.)', str_replace('%', '(.*)', preg_quote($v2, '~')));
+
+                $result = preg_match('~^' . $pattern . '$~s', (string) $v1) === 1;
+
+                break;
+            case 'NOT LIKE':
+                $result = !$this->evaluateIf($v1, 'LIKE', $v2);
+
+                break;
             case 'REGEXP':
-                $result = (bool) preg_match('/' . $v2 . '/', $v1);
+                $result = preg_match('/' . $v2 . '/', $v1) === 1;
 
                 break;
             case 'NOT REGEXP':

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Atk4\Data\Persistence\Sql\Mssql;
 
+use Atk4\Data\Persistence;
 use Atk4\Data\Persistence\Sql\ExecuteException;
 use Doctrine\DBAL\Connection as DbalConnection;
 use Doctrine\DBAL\Driver\PDO\Exception as DbalDriverPdoException;
@@ -12,6 +13,45 @@ use Doctrine\DBAL\Result as DbalResult;
 
 trait ExpressionTrait
 {
+    #[\Override]
+    protected function escapeStringLiteral(string $value): string
+    {
+        $dummyPersistence = (new \ReflectionClass(Persistence\Sql::class))->newInstanceWithoutConstructor();
+        if (\Closure::bind(static fn () => $dummyPersistence->binaryTypeValueIsEncoded($value), null, Persistence\Sql::class)()) {
+            $value = \Closure::bind(static fn () => $dummyPersistence->binaryTypeValueDecode($value), null, Persistence\Sql::class)();
+
+            return 'convert(VARBINARY(MAX), \'' . bin2hex($value) . '\', 2)';
+        }
+
+        $parts = [];
+        foreach (explode("\0", $value) as $i => $v) {
+            if ($i > 0) {
+                $parts[] = 'NCHAR(0)';
+            }
+
+            if ($v !== '') {
+                $parts[] = '\'' . str_replace('\'', '\'\'', $v) . '\'';
+            }
+        }
+
+        if ($parts === []) {
+            $parts = ['\'\''];
+        }
+
+        $buildConcatSqlFx = static function (array $parts) use (&$buildConcatSqlFx): string {
+            if (count($parts) > 1) {
+                $partsLeft = array_slice($parts, 0, intdiv(count($parts), 2));
+                $partsRight = array_slice($parts, count($partsLeft));
+
+                return 'CONCAT(CAST(' . $buildConcatSqlFx($partsLeft) . ' AS NVARCHAR(MAX)), ' . $buildConcatSqlFx($partsRight) . ')';
+            }
+
+            return reset($parts);
+        };
+
+        return $buildConcatSqlFx($parts);
+    }
+
     #[\Override]
     public function render(): array
     {
