@@ -484,11 +484,91 @@ class SelectTest extends TestCase
         }
     }
 
+    public function testQuotedTokenRegexConstant(): void
+    {
+        $hasBackslashSupport = $this->getDatabasePlatform() instanceof MySQLPlatform;
+
+        self::assertSame(
+            '(?:(?sx)' . "\n"
+                . '    \'(?:[^\'' . ($hasBackslashSupport ? '\\\\' : '') . ']+' . ($hasBackslashSupport ? '|\\\.' : '') . '|\'\')*+\'' . "\n"
+                . '    |"(?:[^"' . ($hasBackslashSupport ? '\\\\' : '') . ']+' . ($hasBackslashSupport ? '|\\\.' : '') . '|"")*+"' . "\n"
+                . '    |`(?:[^`]+|``)*+`' . "\n"
+                . '    |\[(?:[^\]]+|\]\])*+\]' . "\n"
+                . '    |(?:--|\#)[^\r\n]*+' . "\n"
+                . '    |/\*(?:[^*]+|\*(?!/))*+\*/' . "\n"
+                . ')',
+            $this->e()::QUOTED_TOKEN_REGEX
+        );
+
+        self::assertSame($this->e()::QUOTED_TOKEN_REGEX, $this->q()::QUOTED_TOKEN_REGEX);
+
+        $sqlTwoEscape = '\'\'\'\'';
+        $sqlBackslashEscape = '\'\\\'-- \'';
+        if ($this->getDatabasePlatform() instanceof OraclePlatform) {
+            $sqlBackslashEscape .= "\n/**/";
+        }
+
+        $query = $this->q()->field($this->e($sqlTwoEscape));
+        self::assertSame('\'', $query->getOne());
+
+        $query = $this->q()->field($this->e($sqlBackslashEscape));
+        self::assertSame($hasBackslashSupport ? '\'-- ' : '\\', $query->getOne());
+
+        foreach (['"', '`'] as $chr) {
+            if ($chr === '`' && ($this->getDatabasePlatform() instanceof PostgreSQLPlatform || $this->getDatabasePlatform() instanceof SQLServerPlatform || $this->getDatabasePlatform() instanceof OraclePlatform)) {
+                continue;
+            }
+
+            $replaceFx = static fn ($v) => str_replace('\'', $chr, $v);
+            $needsExplicitAs = $chr === '"' && $this->getDatabasePlatform() instanceof MySQLPlatform;
+
+            if ($chr !== '"' || !$this->getDatabasePlatform() instanceof OraclePlatform) {
+                $query = $this->q()->field($this->e('\'x\' ' . ($needsExplicitAs ? 'as ' : '') . $replaceFx($sqlTwoEscape)));
+                self::assertSame([$chr => 'x'], $query->getRow());
+            }
+
+            $query = $this->q()->field($this->e('\'x\' ' . ($needsExplicitAs ? 'as ' : '') . $replaceFx($sqlBackslashEscape)));
+            self::assertSame([$hasBackslashSupport && $chr === '"' ? $chr . '-- ' : '\\' => 'x'], $query->getRow());
+        }
+
+        if (!($this->getDatabasePlatform() instanceof MySQLPlatform || $this->getDatabasePlatform() instanceof PostgreSQLPlatform || $this->getDatabasePlatform() instanceof OraclePlatform)) {
+            $query = $this->q()->field($this->e('\'x\' [a*b]'));
+            self::assertSame(['a*b' => 'x'], $query->getRow());
+
+            $replaceFx = static fn ($v) => str_replace('\'', ']', preg_replace('~^\'~', '[a*b', $v));
+
+            if ($this->getDatabasePlatform() instanceof SQLServerPlatform) {
+                $query = $this->q()->field($this->e('\'x\' ' . $replaceFx($sqlTwoEscape)));
+                self::assertSame(['a*b]' => 'x'], $query->getRow());
+            }
+
+            $query = $this->q()->field($this->e('\'x\' ' . $replaceFx($sqlBackslashEscape)));
+            self::assertSame(['a*b\\' => 'x'], $query->getRow());
+        }
+    }
+
     public function testEscapeStringLiteral(): void
     {
+        // TODO full binary support
+        $maxOrd = $this->getDatabasePlatform() instanceof PostgreSQLPlatform
+            || $this->getDatabasePlatform() instanceof SQLServerPlatform
+            ? 0x7F
+            : 0xFF;
+
         $str = '';
-        for ($i = 0; $i <= 0x7F; ++$i) {
-            $str .= chr($i);
+        for ($i = 0; $i <= $maxOrd; ++$i) {
+            $chr = chr($i);
+            for ($j = 1; $j <= 5; ++$j) { // TODO PostgreSQL/MSSQL is failing with "$j <= 1"
+                $str .= str_repeat($chr, $j) . '_';
+                for ($k = 1; $k <= 5; ++$k) {
+                    $str .= str_repeat('\\', $k) . str_repeat($chr, $j) . '_';
+                }
+            }
+        }
+
+        // Oracle string literal is limited to 4000 bytes
+        if ($this->getDatabasePlatform() instanceof OraclePlatform) {
+            $str = substr($str, 0, 4000);
         }
 
         // PostgreSQL does not support \0 character
@@ -497,22 +577,19 @@ class SelectTest extends TestCase
             ? str_replace("\0", '-', $str)
             : $str;
 
-        $dummyExpression = $this->getConnection()->expr();
+        $dummyExpression = $this->e();
         $strSql = \Closure::bind(static fn () => $dummyExpression->escapeStringLiteral($str2), null, Expression::class)();
-        $query = $this->getConnection()->dsql()
-            ->field($this->getConnection()->expr($strSql));
-        $res = $query->getOne();
-        self::assertSame(bin2hex($str2), bin2hex($res));
+        $query = $this->q()->field($this->e($strSql));
+        self::assertSame(bin2hex($str2), bin2hex($query->getOne()));
 
-        $strSql = \Closure::bind(static fn () => $dummyExpression->escapeStringLiteral($str), null, Expression::class)();
-        $query = $this->getConnection()->dsql()
-            ->field($this->getConnection()->expr($strSql));
-        if ($this->getDatabasePlatform() instanceof PostgreSQLPlatform) {
+        if ($str2 !== $str) {
+            $strSql = \Closure::bind(static fn () => $dummyExpression->escapeStringLiteral($str), null, Expression::class)();
+            $query = $this->q()->field($this->e($strSql));
+
             $this->expectException(ExecuteException::class);
             $this->expectExceptionMessage('Character not in repertoire');
+            $query->getOne();
         }
-        $res = $query->getOne();
-        self::assertSame(bin2hex($str), bin2hex($res));
     }
 
     public function testUtf8mb4Support(): void
@@ -552,7 +629,7 @@ class SelectTest extends TestCase
             $pk = 'myid';
             if ($this->getDatabasePlatform() instanceof MySQLPlatform) {
                 self::assertFalse($this->getConnection()->inTransaction());
-                $this->getConnection()->expr('analyze table {}', [$table])->executeStatement();
+                $this->e('analyze table {}', [$table])->executeStatement();
                 $query = $this->q()->table('INFORMATION_SCHEMA.TABLES')
                     ->field($this->e('{} - 1', ['AUTO_INCREMENT']))
                     ->where('TABLE_NAME', $table);
