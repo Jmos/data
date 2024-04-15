@@ -577,6 +577,9 @@ class SelectTest extends TestCase
                 }
             }
         }
+        for ($i = 1; $i <= 10_000; $i = (int) ceil($i * 1.1)) {
+            $str .= str_repeat('\\', $i) . str_repeat("\0", $i);
+        }
 
         // TODO full binary support
         if ($this->getDatabasePlatform() instanceof PostgreSQLPlatform
@@ -643,15 +646,7 @@ class SelectTest extends TestCase
             '--',
             '#',
         ] as $k => $v) {
-            if ($v === '2' && ( // TODO report php-src issue
-                $this->getDatabasePlatform() instanceof SQLitePlatform // https://dbfiddle.uk/XLSbYEoC
-                || $this->getDatabasePlatform() instanceof MySQLPlatform // https://dbfiddle.uk/NAEJ_B3u https://dbfiddle.uk/vLxZ3sqz
-                || $this->getDatabasePlatform() instanceof PostgreSQLPlatform // https://dbfiddle.uk/h2CWtcWk
-                || $this->getDatabasePlatform() instanceof SQLServerPlatform // https://dbfiddle.uk/M1JTBjMd
-                || $this->getDatabasePlatform() instanceof OraclePlatform // https://dbfiddle.uk/P9Z3SZ0k
-            )) {
-                continue;
-            } elseif ($v === '"' && $this->getDatabasePlatform() instanceof OraclePlatform) { // Oracle identifier cannot contain double quote
+            if ($v === '"' && $this->getDatabasePlatform() instanceof OraclePlatform) { // Oracle identifier cannot contain double quote
                 continue;
             } elseif (($v === '\\' || $v === '\\\\\\') && ($this->getDatabasePlatform() instanceof PostgreSQLPlatform || $this->getDatabasePlatform() instanceof OraclePlatform)) { // https://github.com/php/php-src/issues/13958
                 continue;
@@ -665,17 +660,13 @@ class SelectTest extends TestCase
             $expected[$v] = $k;
             $query->field($this->e('[]', [$k]), $v);
 
+            if ($v === '\\' || $v === '\\\\' || $v === '\\\\\\') {
+                continue;
+            }
+
             if (($v === '"' || $v === '\\\\\\\\') && $this->getDatabasePlatform() instanceof PostgreSQLPlatform) { // https://github.com/php/php-src/issues/13958
                 continue;
             } if ($v === '\\\\\\\\' && $this->getDatabasePlatform() instanceof OraclePlatform) { // https://github.com/php/php-src/issues/13958
-                continue;
-            } elseif (($v === '\\' || $v === '\\\\' || $v === '\\\\\\') && ( // TODO report php-src issue
-                $this->getDatabasePlatform() instanceof SQLitePlatform // https://dbfiddle.uk/ye6Jv9AW
-                || $this->getDatabasePlatform() instanceof MySQLPlatform // https://dbfiddle.uk/cyoglskt
-                || $this->getDatabasePlatform() instanceof PostgreSQLPlatform // https://dbfiddle.uk/1L18Yn42
-                || $this->getDatabasePlatform() instanceof SQLServerPlatform // https://dbfiddle.uk/3MchbP0_
-                || $this->getDatabasePlatform() instanceof OraclePlatform // https://dbfiddle.uk/8veckcQK
-            )) {
                 continue;
             }
 

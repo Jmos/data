@@ -9,6 +9,8 @@ namespace Atk4\Data\Persistence\Sql;
  */
 abstract class Query extends Expression
 {
+    private const FIELD_INT_STRING_PREFIX = "\xff_int-string_";
+
     /** Template name for render. */
     public string $mode = 'select';
 
@@ -52,12 +54,11 @@ abstract class Query extends Expression
      * a dot or a space), you should wrap it into expression:
      *  $q->field($q->expr('{}', ['fun...ky.field']), 'f');
      *
-     * @param string|Expressionable $field Specifies field to select
-     * @param string                $alias Specify alias for this field
+     * @param string|Expressionable $field
      *
      * @return $this
      */
-    public function field($field, $alias = null)
+    public function field($field, ?string $alias = null)
     {
         $this->_setArgs('field', $alias, $field);
 
@@ -79,17 +80,17 @@ abstract class Query extends Expression
                 return $this->consume($this->defaultField, self::ESCAPE_PARAM);
             }
 
-            return $this->defaultField;
+            return $this->escapeIdentifierSoft($this->defaultField);
         }
 
         $res = [];
         foreach ($this->args['field'] as $alias => $field) {
-            // do not add alias when:
-            //  - we don't want aliases
-            //  - OR alias is the same as field
-            //  - OR alias is numeric
+            if (is_string($alias) && str_starts_with($alias, self::FIELD_INT_STRING_PREFIX)) {
+                $alias = substr($alias, strlen(self::FIELD_INT_STRING_PREFIX));
+            }
+
             if ($addAlias === false
-                || (is_string($field) && $alias === $field)
+                || $alias === $field
                 || is_int($alias)
             ) {
                 $alias = null;
@@ -98,7 +99,7 @@ abstract class Query extends Expression
             // will parameterize the value and escape if necessary
             $field = $this->consume($field, self::ESCAPE_IDENTIFIER_SOFT);
 
-            if ($alias) {
+            if ($alias !== null) {
                 // field alias cannot be expression, so simply escape it
                 $field .= ' ' . $this->escapeIdentifier($alias);
             }
@@ -121,19 +122,21 @@ abstract class Query extends Expression
     /**
      * Specify a table to be used in a query.
      *
-     * @param string|Expressionable $table Specifies table
-     * @param string                $alias Specify alias for this table
+     * @param string|Expressionable $table
      *
      * @return $this
      */
-    public function table($table, $alias = null)
+    public function table($table, ?string $alias = null)
     {
-        if ($table instanceof self && $alias === null) {
-            throw new Exception('If table is set as subquery, then table alias is required');
-        }
+        if ($alias === null) {
+            if ($table instanceof self) {
+                throw (new Exception('Table alias is required when table is set as subquery'))
+                    ->addMoreInfo('table', $table);
+            }
 
-        if (is_string($table) && $alias === null) {
-            $alias = $table;
+            if (is_string($table)) {
+                $alias = $table;
+            }
         }
 
         $this->_setArgs('table', $alias, $table);
@@ -219,10 +222,7 @@ abstract class Query extends Expression
     /**
      * Specify WITH query to be used.
      *
-     * @param Query                   $cursor    Specifies cursor query or array [alias => query] for adding multiple
-     * @param string                  $alias     Specify alias for this cursor
-     * @param array<int, string>|null $fields    Optional array of field names used in cursor
-     * @param bool                    $recursive Is it recursive?
+     * @param array<int, string>|null $fields
      *
      * @return $this
      */
@@ -1183,22 +1183,30 @@ abstract class Query extends Expression
     /**
      * Sets value in args array. Doesn't allow duplicate aliases.
      *
-     * @param string      $what  Where to set it - table|field
-     * @param string|null $alias Alias name
-     * @param mixed       $value Value to set in args array
+     * @param mixed $value
      */
-    protected function _setArgs($what, $alias, $value): void
+    protected function _setArgs(string $kind, ?string $alias, $value): void
     {
         if ($alias === null) {
-            $this->args[$what][] = $value;
+            $this->args[$kind][] = $value;
         } else {
-            if (isset($this->args[$what][$alias])) {
+            if (isset($this->args[$kind][$alias])) {
                 throw (new Exception('Alias must be unique'))
-                    ->addMoreInfo('what', $what)
+                    ->addMoreInfo('kind', $kind)
                     ->addMoreInfo('alias', $alias);
             }
 
-            $this->args[$what][$alias] = $value;
+            if ($alias === (string) (int) $alias) {
+                if ($kind === 'field') {
+                    $alias = self::FIELD_INT_STRING_PREFIX . $alias;
+                } else {
+                    throw (new Exception('Alias must be not int-string'))
+                        ->addMoreInfo('kind', $kind)
+                        ->addMoreInfo('alias', $alias);
+                }
+            }
+
+            $this->args[$kind][$alias] = $value;
         }
     }
 
