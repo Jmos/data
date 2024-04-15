@@ -549,21 +549,41 @@ class SelectTest extends TestCase
 
     public function testEscapeStringLiteral(): void
     {
-        // TODO full binary support
-        $maxOrd = $this->getDatabasePlatform() instanceof PostgreSQLPlatform
-            || $this->getDatabasePlatform() instanceof SQLServerPlatform
-            ? 0x7F
-            : 0xFF;
+        $chars = [];
+        for ($i = 0; $i <= 0xFF; ++$i) {
+            $chr = chr($i);
+            $chars[] = $chr;
+
+            if ($chr === '1') {
+                $i += 7;
+            } elseif ($chr === 'B' || $chr === 'b') {
+                $i += 23;
+            }
+        }
 
         $str = '';
-        for ($i = 0; $i <= $maxOrd; ++$i) {
-            $chr = chr($i);
-            for ($j = 1; $j <= 5; ++$j) { // TODO PostgreSQL/MSSQL is failing with "$j <= 1"
-                $str .= str_repeat($chr, $j) . '_';
-                for ($k = 1; $k <= 5; ++$k) {
-                    $str .= str_repeat('\\', $k) . str_repeat($chr, $j) . '_';
+        foreach ($chars as $chr1) {
+            foreach ($chars as $chr2) {
+                foreach (['\\', '\''] as $chr3) {
+                    $str .= $chr1 . $chr2 . $chr3;
                 }
             }
+        }
+        foreach ($chars as $chr) {
+            for ($i = 1; $i <= 3; ++$i) {
+                $str .= str_repeat($chr, $i) . '?';
+                for ($j = 1; $j <= 3; ++$j) {
+                    $str .= str_repeat('\\', $j) . str_repeat($chr, $i) . ':n';
+                }
+            }
+        }
+
+        // TODO full binary support
+        if ($this->getDatabasePlatform() instanceof PostgreSQLPlatform
+            || $this->getDatabasePlatform() instanceof SQLServerPlatform
+            || $this->getDatabasePlatform() instanceof OraclePlatform
+        ) {
+            $str = mb_convert_encoding($str, 'UTF-8', 'UTF-8');
         }
 
         // Oracle string literal is limited to 4000 bytes
@@ -590,6 +610,81 @@ class SelectTest extends TestCase
             $this->expectExceptionMessage('Character not in repertoire');
             $query->getOne();
         }
+    }
+
+    public function testEscapeIdentifier(): void
+    {
+        $expected = [];
+        $query = $this->q();
+        foreach ([
+            'foo',
+            'a b',
+            'a  b',
+            "a\nb",
+            "a\tb",
+            '2',
+            '\'',
+            '"',
+            '`',
+            '[',
+            ']',
+            '\\',
+            '\\\\',
+            '\\\\\\',
+            '\\\\\\\\',
+            '\\n',
+            '.',
+            '*',
+            '?',
+            ':',
+            ':x',
+            ':1',
+            ';',
+            '--',
+            '#',
+        ] as $k => $v) {
+            if ($v === '2' && ( // TODO report php-src issue
+                $this->getDatabasePlatform() instanceof SQLitePlatform // https://dbfiddle.uk/XLSbYEoC
+                || $this->getDatabasePlatform() instanceof MySQLPlatform // https://dbfiddle.uk/NAEJ_B3u https://dbfiddle.uk/vLxZ3sqz
+                || $this->getDatabasePlatform() instanceof PostgreSQLPlatform // https://dbfiddle.uk/h2CWtcWk
+                || $this->getDatabasePlatform() instanceof SQLServerPlatform // https://dbfiddle.uk/M1JTBjMd
+                || $this->getDatabasePlatform() instanceof OraclePlatform // https://dbfiddle.uk/P9Z3SZ0k
+            )) {
+                continue;
+            } elseif ($v === '"' && $this->getDatabasePlatform() instanceof OraclePlatform) { // Oracle identifier cannot contain double quote
+                continue;
+            } elseif (($v === '\\' || $v === '\\\\\\') && ($this->getDatabasePlatform() instanceof PostgreSQLPlatform || $this->getDatabasePlatform() instanceof OraclePlatform)) { // https://github.com/php/php-src/issues/13958
+                continue;
+            } elseif (($v === '?' || $v === ':x' || $v === ':1' || $v === '--') && $this->getDatabasePlatform() instanceof MySQLPlatform) { // TODO pdo_mysql only https://dbfiddle.uk/cEbLp3M4
+                continue;
+            } elseif (($v === ':x' || $v === ':1') && $this->getDatabasePlatform() instanceof SQLServerPlatform) { // TODO https://dbfiddle.uk/4pDZnwWq
+                continue;
+            }
+
+            $k = '=' . $k;
+            $expected[$v] = $k;
+            $query->field($this->e('[]', [$k]), $v);
+
+            if (($v === '"' || $v === '\\\\\\\\') && $this->getDatabasePlatform() instanceof PostgreSQLPlatform) { // https://github.com/php/php-src/issues/13958
+                continue;
+            } if ($v === '\\\\\\\\' && $this->getDatabasePlatform() instanceof OraclePlatform) { // https://github.com/php/php-src/issues/13958
+                continue;
+            } elseif (($v === '\\' || $v === '\\\\' || $v === '\\\\\\') && ( // TODO report php-src issue
+                $this->getDatabasePlatform() instanceof SQLitePlatform // https://dbfiddle.uk/ye6Jv9AW
+                || $this->getDatabasePlatform() instanceof MySQLPlatform // https://dbfiddle.uk/cyoglskt
+                || $this->getDatabasePlatform() instanceof PostgreSQLPlatform // https://dbfiddle.uk/1L18Yn42
+                || $this->getDatabasePlatform() instanceof SQLServerPlatform // https://dbfiddle.uk/3MchbP0_
+                || $this->getDatabasePlatform() instanceof OraclePlatform // https://dbfiddle.uk/8veckcQK
+            )) {
+                continue;
+            }
+
+            $k = '\\' . $k;
+            $expected['\\' . $v] = $k;
+            $query->field($this->e('[]', [$k]), '\\' . $v);
+        }
+
+        self::assertSame($expected, $query->getRow());
     }
 
     public function testUtf8mb4Support(): void
