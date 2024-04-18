@@ -50,11 +50,7 @@ class QueryTest extends TestCase
             #[\Override]
             protected function escapeStringLiteral(string $value): string
             {
-                if ($value === '\\') {
-                    return '\'\\\'';
-                }
-
-                return null; // @phpstan-ignore-line
+                return '\'' . str_replace('\'', '\'\'', $value) . '\'';
             }
         };
 
@@ -790,6 +786,17 @@ class QueryTest extends TestCase
                 EOF,
             (new OracleQuery('[where]'))->where('name', 'like', 'foo')->render()[0]
         );
+
+        // regexp | not regexp
+        self::assertSame(
+            'where regexp_like("name", :a, \'is\')',
+            $this->q('[where]')->where('name', 'regexp', '^foo')->render()[0]
+        );
+        self::assertSame(
+            'where not regexp_like("name", :a, \'is\')',
+            $this->q('[where]')->where('name', 'not regexp', '^foo')->render()[0]
+        );
+        // TODO add MysqlQuery test once MySQL 5.x support is dropped
     }
 
     public function testWhereInWithNullException(): void

@@ -8,6 +8,10 @@ use Atk4\Data\Exception;
 use Atk4\Data\Model;
 use Atk4\Data\Schema\TestCase;
 use Atk4\Data\ValidationException;
+use Doctrine\DBAL\Platforms\MySQLPlatform;
+use Doctrine\DBAL\Platforms\OraclePlatform;
+use Doctrine\DBAL\Platforms\PostgreSQLPlatform;
+use Doctrine\DBAL\Platforms\SQLServerPlatform;
 
 class ConditionSqlTest extends TestCase
 {
@@ -509,26 +513,32 @@ class ConditionSqlTest extends TestCase
                 1 => ['id' => 1, 'name' => 'John', 'c' => 1],
                 ['id' => 2, 'name' => 'Peter', 'c' => 2000],
                 ['id' => 3, 'name' => 'Joe', 'c' => 50],
-                ['id' => 4, 'name' => 'Ca%ro_li\ne', 'c' => null],
-                ['id' => 5, 'name' => 'Ca.ro.li\\\ne', 'c' => null],
+                ['id' => 4, 'name' => 'Ca%ro_li\ne'],
+                ['id' => 5, 'name' => "Ca\nro.li\\\\ne"],
             ],
         ]);
 
         $u = new Model($this->db, ['table' => 'user']);
         $u->addField('name', ['type' => 'string']);
-        $u->addField('c', ['type' => 'boolean']);
+        $u->addField('c', ['type' => 'integer']);
 
-        $findIdsLikeFx = static function (string $field, string $value, bool $negated = false) use ($u) {
+        $findIdsLikeFx = function (string $field, string $value, bool $negated = false) use ($u) {
             $t = (clone $u)->addCondition($field, ($negated ? 'not ' : '') . 'like', $value);
+            $res = array_keys($t->export(null, 'id'));
 
-            return array_keys($t->export(null, 'id'));
+            $t = (clone $u)->addCondition($field, ($negated ? 'not ' : '') . 'like', $u->dsql()->field($u->expr('[]', [$value])));
+            if (!$this->getConnection()->getConnection()->getNativeConnection() instanceof \mysqli) { // https://bugs.mysql.com/bug.php?id=114659
+                self::assertSame(array_keys($t->export(null, 'id')), $res);
+            }
+
+            return $res;
         };
 
         self::assertSame([1], $findIdsLikeFx('name', 'John'));
+        self::assertSame([1], $findIdsLikeFx('name', 'john'));
         self::assertSame([], $findIdsLikeFx('name', 'Joh'));
         self::assertSame([1, 3], $findIdsLikeFx('name', 'Jo%'));
         self::assertSame([2, 4, 5], $findIdsLikeFx('name', 'Jo%', true));
-        self::assertSame([1], $findIdsLikeFx('name', 'john'));
         self::assertSame([1], $findIdsLikeFx('name', '%John%'));
         self::assertSame([1], $findIdsLikeFx('name', 'Jo%n'));
         self::assertSame([1], $findIdsLikeFx('name', 'J%n'));
@@ -557,5 +567,162 @@ class ConditionSqlTest extends TestCase
         self::assertSame([], $findIdsLikeFx('name', '%.li%ne\\'));
         self::assertSame([], $findIdsLikeFx('name', '%.li%ne\\\\'));
         self::assertSame([], $findIdsLikeFx('name', '%*li%ne'));
+
+        self::assertStringStartsWith("Ca\nro", $u->load(5)->get('name'));
+        self::assertSame([5], $findIdsLikeFx('name', "Ca\n%"));
+        self::assertSame([5], $findIdsLikeFx('name', "Ca\\\n%"));
+        self::assertSame([], $findIdsLikeFx('name', 'Ca\\n%'));
+        self::assertSame([], $findIdsLikeFx('name', 'Ca %'));
+    }
+
+    public function testRegexpCondition(): void
+    {
+        $this->setDb([
+            'user' => [
+                1 => ['id' => 1, 'name' => 'John', 'c' => 1, 'rating' => 1.5],
+                ['id' => 2, 'name' => 'Peter', 'c' => 2000, 'rating' => 2.5],
+                ['id' => 3, 'name' => 'Joe', 'c' => 50],
+                ['id' => 4, 'name' => ''],
+                ['id' => 5, 'name' => 'Sa ra'],
+                ['id' => 6, 'name' => "Sa\nra"],
+                ['id' => 7, 'name' => 'Sa.ra'],
+                ['id' => 8, 'name' => 'Sa/ra'],
+                ['id' => 9, 'name' => 'Sa\ra'],
+                ['id' => 10, 'name' => 'Sa\\\ra'],
+                ['id' => 11, 'name' => 'Sa~ra'],
+                ['id' => 12, 'name' => 'Sa$ra'],
+                ['id' => 13, 'name' => 'heiß'],
+            ],
+        ]);
+
+        $u = new Model($this->db, ['table' => 'user']);
+        $u->addField('name', ['type' => 'string']);
+        $u->addField('c', ['type' => 'integer']);
+        $u->addField('rating', ['type' => 'float']);
+
+        if ($this->getDatabasePlatform() instanceof SQLServerPlatform) {
+            // https://devblogs.microsoft.com/azure-sql/introducing-regular-expression-regex-support-in-azure-sql-db/
+            self::markTestIncomplete('MSSQL has no REGEXP support yet');
+        }
+
+        $findIdsRegexFx = function (string $field, string $value, bool $negated = false) use ($u) {
+            $t = (clone $u)->addCondition($field, ($negated ? 'not ' : '') . 'regexp', $value);
+            $res = array_keys($t->export(null, 'id'));
+
+            $t = (clone $u)->addCondition($field, ($negated ? 'not ' : '') . 'regexp', $u->dsql()->field($u->expr('[]', [$value])));
+            if (!$this->getConnection()->getConnection()->getNativeConnection() instanceof \mysqli) { // https://bugs.mysql.com/bug.php?id=114659
+                self::assertSame(array_keys($t->export(null, 'id')), $res);
+            }
+
+            return $res;
+        };
+
+        self::assertSame([1], $findIdsRegexFx('name', 'John'));
+        self::assertSame([1], $findIdsRegexFx('name', 'john'));
+        self::assertSame([13], $findIdsRegexFx('name', 'heiß'));
+        self::assertSame([13], $findIdsRegexFx('name', 'Heiß'));
+        self::assertSame([1], $findIdsRegexFx('name', 'Joh'));
+        self::assertSame([1], $findIdsRegexFx('name', 'ohn'));
+        self::assertSame([1, 2, 3, ...($this->getDatabasePlatform() instanceof OraclePlatform ? [] : [4]), 13], $findIdsRegexFx('name', 'a', true));
+
+        self::assertSame([1], $findIdsRegexFx('c', '1'));
+        self::assertSame([2], $findIdsRegexFx('c', '2000'));
+        self::assertSame([2, 3], $findIdsRegexFx('c', '0'));
+        self::assertSame([1], $findIdsRegexFx('c', '0', true));
+        self::assertSame([1, 2], $findIdsRegexFx('rating', '\.5'));
+        self::assertSame([2], $findIdsRegexFx('rating', '2\.5'));
+
+        self::assertSame([9, 10], $findIdsRegexFx('name', '\\\\'));
+        self::assertSame([10], $findIdsRegexFx('name', '\\\\\\\\'));
+        self::assertSame([], $findIdsRegexFx('name', '\\\\\\\\\\\\'));
+        self::assertSame([7], $findIdsRegexFx('name', '\.'));
+        self::assertSame([12], $findIdsRegexFx('name', '\$'));
+        self::assertSame([8], $findIdsRegexFx('name', '/ra'));
+        self::assertSame([8], $findIdsRegexFx('name', '\/ra'));
+        self::assertSame([11], $findIdsRegexFx('name', '~ra'));
+        self::assertSame([11], $findIdsRegexFx('name', '\~ra'));
+        self::assertSame([5], $findIdsRegexFx('name', ' ra'));
+        self::assertSame([5], $findIdsRegexFx('name', '\ ra'));
+        self::assertSame([6], $findIdsRegexFx('name', "\nra"));
+        self::assertSame([6], $findIdsRegexFx('name', "\\\nra"));
+
+        self::assertSame("Sa\nra", $u->load(6)->get('name'));
+        self::assertSame([6], $findIdsRegexFx('name', "Sa\nra"));
+        self::assertSame([6], $findIdsRegexFx('name', "Sa\\\nra"));
+
+        self::assertSame([2, 3, 13], $findIdsRegexFx('name', '.e'));
+        self::assertSame(array_values(array_diff(range(1, 13), [4])), $findIdsRegexFx('name', '.'));
+        self::assertSame([5, 6, 7, 8, 9, 11, 12], $findIdsRegexFx('name', 'Sa.ra'));
+        self::assertSame([2, 3, 13], $findIdsRegexFx('name', '[e]'));
+        self::assertSame([1, 2, 3, 13], $findIdsRegexFx('name', '[eo]'));
+        self::assertSame([1, 2, 3, 13], $findIdsRegexFx('name', '[A-P][aeo]'));
+        self::assertSame([3], $findIdsRegexFx('name', 'o[^h]'));
+        self::assertSame([5, 6, 7, 8, 9, 10, 11, 12], $findIdsRegexFx('name', '^Sa'));
+        self::assertSame([], $findIdsRegexFx('name', '^ra'));
+        self::assertSame([5, 6, 7, 8, 9, 10, 11, 12], $findIdsRegexFx('name', 'ra$'));
+        self::assertSame([], $findIdsRegexFx('name', 'Sa$'));
+
+        self::assertSame([1, 3], $findIdsRegexFx('name', 'John|e$'));
+        self::assertSame([1], $findIdsRegexFx('name', '((John))()'));
+        self::assertSame([1, 3, 5], $findIdsRegexFx('name', '(J|Sa ra)'));
+
+        self::assertSame([1], $findIdsRegexFx('name', 'J.+n'));
+        self::assertSame([], $findIdsRegexFx('name', 'John.+'));
+        self::assertSame([2], $findIdsRegexFx('c', '20+$'));
+        self::assertSame([1], $findIdsRegexFx('name', 'J.*n'));
+        self::assertSame([1], $findIdsRegexFx('name', 'John.*'));
+        self::assertSame([2], $findIdsRegexFx('c', '20*$'));
+        self::assertSame([1], $findIdsRegexFx('name', 'J.?hn'));
+        self::assertSame([], $findIdsRegexFx('name', 'J.?n'));
+        self::assertSame([], $findIdsRegexFx('c', '20?$'));
+        self::assertSame([2], $findIdsRegexFx('c', '20{3}$'));
+        self::assertSame([], $findIdsRegexFx('c', '20{2}$'));
+        self::assertSame([], $findIdsRegexFx('c', '20{4}'));
+        self::assertSame([1], $findIdsRegexFx('name', 'Jx{0}ohn'));
+        self::assertSame([2], $findIdsRegexFx('c', '20{2,4}$'));
+        self::assertSame([], $findIdsRegexFx('c', '20{4,4}'));
+        self::assertSame([2], $findIdsRegexFx('c', '20{2,}$'));
+
+        $isMysqlMariadb = $this->getDatabasePlatform() instanceof MySQLPlatform
+            ? str_contains($this->getConnection()->getConnection()->getWrappedConnection()->getServerVersion(), 'MariaDB') // @phpstan-ignore-line
+            : false;
+        $isMysql5x = $this->getDatabasePlatform() instanceof MySQLPlatform && !$isMysqlMariadb
+            ? str_starts_with($this->getConnection()->getConnection()->getWrappedConnection()->getServerVersion(), '5.') // @phpstan-ignore-line
+            : false;
+
+        if (!$this->getDatabasePlatform() instanceof MySQLPlatform || !$isMysql5x) {
+            self::assertSame([2, 3], $findIdsRegexFx('c', '\d0'));
+            self::assertSame([1], $findIdsRegexFx('c', '^\d$'));
+            self::assertSame([1, 3], $findIdsRegexFx('name', 'J\D'));
+            self::assertSame([5, 6], $findIdsRegexFx('name', 'Sa\s'));
+            self::assertSame([7, 8, 9, 10, 11, 12], $findIdsRegexFx('name', 'Sa\S'));
+            self::assertSame([1, 3], $findIdsRegexFx('name', '\wo'));
+            self::assertSame([13], $findIdsRegexFx('name', 'hei\w$'));
+            self::assertSame([10], $findIdsRegexFx('name', '\W\\\\'));
+            if (!$this->getDatabasePlatform() instanceof OraclePlatform) {
+                self::assertSame([5], $findIdsRegexFx('name', '\x20'));
+                self::assertSame([6], $findIdsRegexFx('name', '\n'));
+                self::assertSame([], $findIdsRegexFx('name', '\r'));
+            }
+        }
+
+        if (!$this->getDatabasePlatform() instanceof MySQLPlatform || $isMysqlMariadb) {
+            self::assertSame([2, 5, 6, 7, 8, 9, 10, 11, 12], $findIdsRegexFx('name', '([ae]).+\1'));
+        }
+
+        if ((!$this->getDatabasePlatform() instanceof MySQLPlatform || !$isMysql5x) && !$this->getDatabasePlatform() instanceof OraclePlatform) {
+            self::assertSame([11], $findIdsRegexFx('name', 'Sa(?=~).r'));
+            self::assertSame([5, 6, 7, 8, 9, 12], $findIdsRegexFx('name', 'Sa(?!~).r'));
+            self::assertSame([11], $findIdsRegexFx('name', 'a.(?<=~)ra'));
+            self::assertSame([5, 6, 7, 8, 9, 12], $findIdsRegexFx('name', 'a.(?<!~)ra'));
+        }
+
+        $hugeList = array_map(static fn ($i) => 'foo' . $i, range(0, $this->getDatabasePlatform() instanceof OraclePlatform ? 22 : 2_000));
+        self::assertSame([1], $findIdsRegexFx('name', implode('|', $hugeList) . '|John'));
+        if (!$this->getDatabasePlatform() instanceof PostgreSQLPlatform) { // very slow on PostgreSQL 14 and lower, on PostgreSQL 15 and 16 the queries are still slow (~10 seconds)
+            self::assertSame([1], $findIdsRegexFx('name', str_repeat('(', 99) . implode('|', $hugeList) . '|John' . str_repeat(')', 99)));
+            self::assertSame([1], $findIdsRegexFx('name', implode('', array_map(static fn ($v) => '(' . $v . ')?', $hugeList)) . 'John'));
+        }
+        self::assertSame([1], $findIdsRegexFx('name', implode('', array_map(static fn ($v) => '((' . $v . ')?', array_slice($hugeList, 0, 98))) . 'John' . str_repeat(')', min(count($hugeList), 98))));
     }
 }

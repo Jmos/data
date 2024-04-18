@@ -15,9 +15,20 @@ class Query extends BaseQuery
     protected string $identifierEscapeChar = '`';
     protected string $expressionClass = Expression::class;
 
-    protected array $supportedOperators = ['=', '!=', '<', '>', '<=', '>=', 'in', 'not in', 'like', 'not like', 'regexp', 'not regexp'];
-
     protected string $templateUpdate = 'update [table][join] set [set] [where]';
+
+    #[\Override]
+    protected function _renderConditionRegexpOperator(bool $negated, string $sqlLeft, string $sqlRight): string
+    {
+        $serverVersion = $this->connection->getConnection()->getWrappedConnection()->getServerVersion(); // @phpstan-ignore-line
+        $isMysql5x = str_starts_with($serverVersion, '5.') && !str_contains($serverVersion, 'MariaDB');
+
+        return $sqlLeft . ($negated ? ' not' : '') . ' regexp ' . (
+            $isMysql5x
+                ? $sqlRight
+                : 'concat(' . $this->escapeStringLiteral('(?s)') . ', ' . $sqlRight . ')'
+        );
+    }
 
     #[\Override]
     public function groupConcat($field, string $separator = ',')
