@@ -36,6 +36,28 @@ class Query extends BaseQuery
         EOF;
 
     #[\Override]
+    protected function _renderConditionLikeOperator(bool $negated, string $sqlLeft, string $sqlRight): string
+    {
+        $replaceSqlFx = function (string $sql, string $search, string $replacement) {
+            return 'replace(' . $sql . ', ' . $this->escapeStringLiteral($search) . ', ' . $this->escapeStringLiteral($replacement) . ')';
+        };
+
+        // workaround missing regexp_replace() function
+        // https://devblogs.microsoft.com/azure-sql/introducing-regular-expression-regex-support-in-azure-sql-db/
+        $sqlRightEscaped = $sqlRight;
+        foreach (['\\', '_', '%'] as $v) {
+            $sqlRightEscaped = $replaceSqlFx($sqlRightEscaped, '\\' . $v, '\\' . $v . '*');
+        }
+        $sqlRightEscaped = $replaceSqlFx($sqlRightEscaped, '\\', '\\\\');
+        foreach (['_', '%', '\\'] as $v) {
+            $sqlRightEscaped = $replaceSqlFx($sqlRightEscaped, '\\\\' . str_replace('\\', '\\\\', $v) . '*', '\\' . $v);
+        }
+
+        return $sqlLeft . ($negated ? ' not' : '') . ' like ' . $sqlRightEscaped
+            . ' escape ' . $this->escapeStringLiteral('\\');
+    }
+
+    #[\Override]
     protected function deduplicateRenderOrder(array $sqls): array
     {
         $res = [];

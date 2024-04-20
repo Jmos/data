@@ -18,6 +18,42 @@ class Query extends BaseQuery
     protected string $templateUpdate = 'update [table][join] set [set] [where]';
 
     #[\Override]
+    protected function _renderConditionLikeOperator(bool $negated, string $sqlLeft, string $sqlRight): string
+    {
+        $serverVersion = $this->connection->getConnection()->getWrappedConnection()->getServerVersion(); // @phpstan-ignore-line
+        $isMysql5x = str_starts_with($serverVersion, '5.') && !str_contains($serverVersion, 'MariaDB');
+
+        if ($isMysql5x) {
+            $replaceSqlFx = function (string $sql, string $search, string $replacement) {
+                return 'replace(' . $sql . ', ' . $this->escapeStringLiteral($search) . ', ' . $this->escapeStringLiteral($replacement) . ')';
+            };
+
+            // workaround missing regexp_replace() function
+            $sqlRightEscaped = $sqlRight;
+            foreach (['\\', '_', '%'] as $v) {
+                $sqlRightEscaped = $replaceSqlFx($sqlRightEscaped, '\\' . $v, '\\' . $v . '*');
+            }
+            $sqlRightEscaped = $replaceSqlFx($sqlRightEscaped, '\\', '\\\\');
+            foreach (['_', '%', '\\'] as $v) {
+                $sqlRightEscaped = $replaceSqlFx($sqlRightEscaped, '\\\\' . str_replace('\\', '\\\\', $v) . '*', '\\' . $v);
+            }
+
+            // workaround https://bugs.mysql.com/bug.php?id=84118
+            // https://bugs.mysql.com/bug.php?id=63829
+            // https://bugs.mysql.com/bug.php?id=68901
+            // https://www.db-fiddle.com/f/argVwuJuqjFAALqfUSTEJb/0
+            $sqlRightEscaped = $replaceSqlFx($sqlRightEscaped, '%\\', '%\\\\');
+        } else {
+            $sqlRightEscaped = 'regexp_replace(' . $sqlRight . ', '
+                . $this->escapeStringLiteral('\\\\\\\|\\\(?![_%])') . ', '
+                . $this->escapeStringLiteral('\\\\\\\\') . ')';
+        }
+
+        return $sqlLeft . ($negated ? ' not' : '') . ' like ' . $sqlRightEscaped
+            . ' escape ' . $this->escapeStringLiteral('\\');
+    }
+
+    #[\Override]
     protected function _renderConditionRegexpOperator(bool $negated, string $sqlLeft, string $sqlRight): string
     {
         $serverVersion = $this->connection->getConnection()->getWrappedConnection()->getServerVersion(); // @phpstan-ignore-line

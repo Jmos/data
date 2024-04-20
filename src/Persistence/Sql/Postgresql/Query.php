@@ -17,6 +17,18 @@ class Query extends BaseQuery
     protected string $templateUpdate = 'update [table][join] set [set] [where]';
     protected string $templateReplace;
 
+    #[\Override]
+    protected function _renderConditionLikeOperator(bool $negated, string $sqlLeft, string $sqlRight): string
+    {
+        $sqlRightEscaped = 'regexp_replace(' . $sqlRight . ', '
+            . $this->escapeStringLiteral('(\\\[\\\_%])|(\\\)') . ', '
+            . $this->escapeStringLiteral('\1\2\2') . ', '
+            . $this->escapeStringLiteral('g') . ')';
+
+        return $sqlLeft . ($negated ? ' not' : '') . ' like ' . $sqlRightEscaped
+            . ' escape ' . $this->escapeStringLiteral('\\');
+    }
+
     // needed for PostgreSQL v14 and lower
     #[\Override]
     protected function _renderConditionRegexpOperator(bool $negated, string $sqlLeft, string $sqlRight): string
