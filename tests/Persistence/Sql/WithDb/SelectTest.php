@@ -486,6 +486,8 @@ class SelectTest extends TestCase
 
     public function testQuotedTokenRegexConstant(): void
     {
+        $hasCommentCarriageReturnSupport = $this->getDatabasePlatform() instanceof PostgreSQLPlatform
+            || $this->getDatabasePlatform() instanceof SQLServerPlatform;
         $hasBackslashSupport = $this->getDatabasePlatform() instanceof MySQLPlatform;
 
         self::assertSame(
@@ -494,7 +496,11 @@ class SelectTest extends TestCase
                 . '    |"(?:[^"' . ($hasBackslashSupport ? '\\\\' : '') . ']+' . ($hasBackslashSupport ? '|\\\.' : '') . '|"")*+"' . "\n"
                 . '    |`(?:[^`]+|``)*+`' . "\n"
                 . '    |\[(?:[^\]]+|\]\])*+\]' . "\n"
-                . '    |(?:--|\#)[^\r\n]*+' . "\n"
+                . '    |(?:--' . (
+                    $this->getDatabasePlatform() instanceof MySQLPlatform
+                        ? '(?=$|[\x01-\x21\x7f])'
+                        : ''
+                ) . '|\#)[^' . ($hasCommentCarriageReturnSupport ? '\r' : '') . '\n]*+' . "\n"
                 . '    |/\*(?:[^*]+|\*(?!/))*+\*/' . "\n"
                 . ')',
             $this->e()::QUOTED_TOKEN_REGEX
@@ -684,7 +690,7 @@ class SelectTest extends TestCase
         // remove once https://jira.mariadb.org/browse/MDEV-27050 is fixed
         $columnAlias = '❤';
         $tableAlias = '🚀';
-        if (str_contains($_ENV['DB_DSN'], 'mariadb')) {
+        if ($this->getDatabasePlatform() instanceof MySQLPlatform && str_contains($this->getConnection()->getConnection()->getWrappedConnection()->getServerVersion(), 'MariaDB')) { // @phpstan-ignore-line
             $columnAlias = '仮';
             $tableAlias = '名';
         }
