@@ -595,9 +595,9 @@ class SelectTest extends TestCase
             $str = mb_convert_encoding($str, 'UTF-8', 'UTF-8');
         }
 
-        // Oracle string literal is limited to 4000 bytes
-        if ($this->getDatabasePlatform() instanceof OraclePlatform) {
-            $str = substr($str, 0, 4000);
+        // remove once https://github.com/php/php-src/issues/8928 is fixed
+        if (str_starts_with($_ENV['DB_DSN'], 'oci8')) {
+            $str = substr($str, 0, 1000);
         }
 
         // PostgreSQL does not support \0 character
