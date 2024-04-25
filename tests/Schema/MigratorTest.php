@@ -97,17 +97,42 @@ class MigratorTest extends TestCase
 
         $this->createMigrator($model)->create();
 
-        $model->import([['v' => 'mixedcase'], ['v' => 'MIXEDCASE'], ['v' => 'MixedCase']]);
+        $model->import([
+            ['v' => 'mixedcase'],
+            ['v' => 'MIXEDCASE'],
+            ['v' => 'MixedCase'],
+        ]);
+
+        if (!$this->getDatabasePlatform() instanceof OraclePlatform || !in_array($type, ['text', 'blob'], true)) {
+            $model->setOrder('v');
+        }
+
+        $expectedExport = $isBinary
+            ? [['id' => 3]]
+            : [['id' => 1], ['id' => 2], ['id' => 3]];
 
         $model->addCondition('v', 'MixedCase');
-        $model->setOrder($this->getDatabasePlatform() instanceof OraclePlatform && in_array($type, ['text', 'blob'], true) ? 'id' : 'v');
+        self::assertSameExportUnordered($expectedExport, $model->export(['id']));
 
-        self::assertSameExportUnordered(
-            $isBinary
-                ? [['id' => 3]]
-                : [['id' => 1], ['id' => 2], ['id' => 3]],
-            $model->export(['id'])
-        );
+        if (!$this->getDatabasePlatform() instanceof OraclePlatform || !in_array($type, ['text', 'blob'], true)) {
+            $model->scope()->clear();
+            $model->addCondition('v', 'in', ['MixedCase', 'foo']);
+            self::assertSameExportUnordered($expectedExport, $model->export(['id']));
+
+            // TODO
+            // $model->scope()->clear();
+            // $model->addCondition('v', 'like', 'MixedCase');
+            // self::assertSameExportUnordered($expectedExport, $model->export(['id']));
+            //
+            // $model->scope()->clear();
+            // $model->addCondition('v', 'like', '%ix%Case');
+            // self::assertSameExportUnordered($expectedExport, $model->export(['id']));
+
+            // TODO
+            // $model->scope()->clear();
+            // $model->addCondition('v', 'regexp', 'ix.+Case');
+            // self::assertSameExportUnordered($expectedExport, $model->export(['id']));
+        }
     }
 
     /**
@@ -177,12 +202,14 @@ class MigratorTest extends TestCase
 
         $this->createMigrator($model)->create();
 
-        $model->import([['v' => $str . (
-            // MSSQL database ignores trailing \0 characters even with binary comparison
-            // https://dba.stackexchange.com/questions/48660/comparing-binary-0x-and-0x00-turns-out-to-be-equal-on-sql-server
-            $isBinary ? ($this->getDatabasePlatform() instanceof SQLServerPlatform ? ' ' : "\0") : '.'
-        )]]);
-        $model->import([['v' => $str]]);
+        $model->import([
+            ['v' => $str . (
+                // MSSQL database ignores trailing \0 characters even with binary comparison
+                // https://dba.stackexchange.com/questions/48660/comparing-binary-0x-and-0x00-turns-out-to-be-equal-on-sql-server
+                $isBinary ? ($this->getDatabasePlatform() instanceof SQLServerPlatform ? ' ' : "\0") : '.'
+            )],
+            ['v' => $str],
+        ]);
 
         $model->addCondition('v', $str);
         $rows = $model->export();

@@ -30,18 +30,18 @@ class CreateRegexpReplaceFunctionMiddleware implements Middleware
                         return null;
                     }
 
-                    if (is_int($value)) {
-                        $value = (string) $value;
-                    } elseif (is_float($value)) {
-                        $value = Expression::castFloatToString($value);
-                    }
+                    $value = CreateRegexpLikeFunctionMiddleware::castScalarToString($value);
 
-                    $isValidUtf8Value = \PHP_VERSION_ID < 80200
-                        ? preg_match('~~u', $value) === 1 // much faster in PHP 8.1 and lower
-                        : mb_check_encoding($value, 'UTF-8');
+                    $binary = \PHP_VERSION_ID < 80200
+                        ? preg_match('~~u', $pattern) !== 1 // much faster in PHP 8.1 and lower
+                            || preg_match('~~u', $value) !== 1
+                            || preg_match('~~u', $replacement) !== 1
+                        : !mb_check_encoding($pattern, 'UTF-8')
+                            || !mb_check_encoding($value, 'UTF-8')
+                            || !mb_check_encoding($replacement, 'UTF-8');
 
                     $pregPattern = '~' . preg_replace('~(?<!\\\)(?:\\\\\\\)*+\K\~~', '\\\~', $pattern) . '~'
-                        . $flags . ($isValidUtf8Value ? 'u' : '');
+                        . $flags . ($binary ? '' : 'u');
 
                     return preg_replace($pregPattern, $replacement, $value);
                 }, -1, \PDO::SQLITE_DETERMINISTIC);
