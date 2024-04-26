@@ -12,7 +12,6 @@ use Atk4\Data\ValidationException;
 use Doctrine\DBAL\Platforms\MySQLPlatform;
 use Doctrine\DBAL\Platforms\OraclePlatform;
 use Doctrine\DBAL\Platforms\PostgreSQLPlatform;
-use Doctrine\DBAL\Platforms\SQLitePlatform;
 use Doctrine\DBAL\Platforms\SQLServerPlatform;
 use PHPUnit\Framework\Attributes\DataProviderExternal;
 
@@ -545,12 +544,6 @@ class ConditionSqlTest extends TestCase
             return $res;
         };
 
-        if ($this->getDatabasePlatform() instanceof SQLitePlatform && ($type === 'binary' || $type === 'blob')) {
-            self::assertTrue(true); // @phpstan-ignore-line
-
-            return; // TODO
-        }
-
         if ($this->getDatabasePlatform() instanceof PostgreSQLPlatform && ($type === 'binary' || $type === 'blob')) {
             self::assertTrue(true); // @phpstan-ignore-line
 
@@ -720,9 +713,9 @@ class ConditionSqlTest extends TestCase
         }
 
         self::assertSame([1], $findIdsRegexFx('name', 'John'));
-        self::assertSame(/* $isBinary ? [] : */ [1], $findIdsRegexFx('name', 'john'));
+        self::assertSame($isBinary ? [] : [1], $findIdsRegexFx('name', 'john'));
         self::assertSame([13], $findIdsRegexFx('name', 'heiß'));
-        self::assertSame(/* $isBinary ? [] : */ [13], $findIdsRegexFx('name', 'Heiß'));
+        self::assertSame($isBinary ? [] : [13], $findIdsRegexFx('name', 'Heiß'));
         self::assertSame([1], $findIdsRegexFx('name', 'Joh'));
         self::assertSame([1], $findIdsRegexFx('name', 'ohn'));
         self::assertSame([1, 2, 3, ...($this->getDatabasePlatform() instanceof OraclePlatform ? [] : [4]), 13], $findIdsRegexFx('name', 'a', true));
@@ -759,7 +752,7 @@ class ConditionSqlTest extends TestCase
         self::assertSame([5, 6, 7, 8, 9, 11, 12], $findIdsRegexFx('name', 'Sa.ra'));
         self::assertSame([2, 3, 13], $findIdsRegexFx('name', '[e]'));
         self::assertSame([1, 2, 3, 13], $findIdsRegexFx('name', '[eo]'));
-        self::assertSame([1, 2, 3, .../* ($isBinary ? [] : */ [13] /* ) */], $findIdsRegexFx('name', '[A-P][aeo]'));
+        self::assertSame([1, 2, 3, ...($isBinary ? [] : [13])], $findIdsRegexFx('name', '[A-P][aeo]'));
         self::assertSame([3], $findIdsRegexFx('name', 'o[^h]'));
         self::assertSame([5, 6, 7, 8, 9, 10, 11, 12], $findIdsRegexFx('name', '^Sa'));
         self::assertSame([], $findIdsRegexFx('name', '^ra'));
