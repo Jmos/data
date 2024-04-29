@@ -12,6 +12,7 @@ use Atk4\Data\ValidationException;
 use Doctrine\DBAL\Platforms\MySQLPlatform;
 use Doctrine\DBAL\Platforms\OraclePlatform;
 use Doctrine\DBAL\Platforms\PostgreSQLPlatform;
+use Doctrine\DBAL\Platforms\SQLitePlatform;
 use Doctrine\DBAL\Platforms\SQLServerPlatform;
 use PHPUnit\Framework\Attributes\DataProviderExternal;
 
@@ -530,6 +531,9 @@ class ConditionSqlTest extends TestCase
             ['name' => 'Ja[n]e'],
             ['name' => 'Ja\[^n]e'],
             ['name' => 'heiß'],
+            ['name' => 'hei\ß'],
+            ['name' => 'hei\\\ß'],
+            ['name' => 'hei\123'],
         ]);
 
         $findIdsLikeFx = function (string $field, string $value, bool $negated = false) use ($u) {
@@ -543,12 +547,6 @@ class ConditionSqlTest extends TestCase
 
             return $res;
         };
-
-        if ($this->getDatabasePlatform() instanceof PostgreSQLPlatform && $isBinary) {
-            self::assertTrue(true); // @phpstan-ignore-line
-
-            return; // TODO
-        }
 
         if ($this->getDatabasePlatform() instanceof SQLServerPlatform && $isBinary) {
             self::assertTrue(true); // @phpstan-ignore-line
@@ -567,7 +565,7 @@ class ConditionSqlTest extends TestCase
         self::assertSame($isBinary ? [] : [9], $findIdsLikeFx('name', 'Heiß'));
         self::assertSame([], $findIdsLikeFx('name', 'Joh'));
         self::assertSame([1, 3], $findIdsLikeFx('name', 'Jo%'));
-        self::assertSame(array_values(array_diff(range(1, 9), [1, 3])), $findIdsLikeFx('name', 'Jo%', true));
+        self::assertSame(array_values(array_diff(range(1, 12), [1, 3])), $findIdsLikeFx('name', 'Jo%', true));
         self::assertSame([1], $findIdsLikeFx('name', '%John%'));
         self::assertSame([1], $findIdsLikeFx('name', 'Jo%n'));
         self::assertSame([1], $findIdsLikeFx('name', 'J%n'));
@@ -578,7 +576,6 @@ class ConditionSqlTest extends TestCase
         self::assertSame([2], $findIdsLikeFx('c', '%2000%'));
         self::assertSame([2, 3], $findIdsLikeFx('c', '%0%'));
         self::assertSame([1], $findIdsLikeFx('c', '%0%', true));
-
         self::assertSame([4, 5, 6], $findIdsLikeFx('name', '%Ca_ro%'));
         self::assertSame([4], $findIdsLikeFx('name', '%Ca\_ro%'));
         self::assertSame([4, 5, 6], $findIdsLikeFx('name', '%ro%li%'));
@@ -608,6 +605,14 @@ class ConditionSqlTest extends TestCase
         self::assertSame([], $findIdsLikeFx('name', '%li\\\\\%e%'));
         self::assertSame([5], $findIdsLikeFx('name', '%li\\\\\\\%e%'));
         self::assertSame([], $findIdsLikeFx('name', '%li\\\\\\\\\%e%'));
+        self::assertSame([10], $findIdsLikeFx('name', 'hei\ß'));
+        self::assertSame([10], $findIdsLikeFx('name', 'hei\\\ß'));
+        self::assertSame([11], $findIdsLikeFx('name', 'hei\\\\\ß'));
+        self::assertSame([11], $findIdsLikeFx('name', 'hei\\\\\\\ß'));
+        self::assertSame([], $findIdsLikeFx('name', 'hei\\\\\\\\\ß'));
+        self::assertSame([12], $findIdsLikeFx('name', 'hei\123'));
+        self::assertSame([12], $findIdsLikeFx('name', 'hei\\\123'));
+        self::assertSame([], $findIdsLikeFx('name', 'hei\\\\\123'));
 
         self::assertSame([4], $findIdsLikeFx('name', '%l_\ne%'));
         self::assertSame([5], $findIdsLikeFx('name', '%l__\ne%'));
@@ -664,6 +669,9 @@ class ConditionSqlTest extends TestCase
             ['name' => 'Sa~ra'],
             ['name' => 'Sa$ra'],
             ['name' => 'heiß'],
+            ['name' => 'hei\ß'],
+            ['name' => 'hei\\\ß'],
+            ['name' => 'hei\123'],
         ]);
 
         $findIdsRegexFx = function (string $field, string $value, bool $negated = false) use ($u) {
@@ -683,12 +691,6 @@ class ConditionSqlTest extends TestCase
             self::markTestIncomplete('MSSQL has no REGEXP support yet');
         }
 
-        if ($this->getDatabasePlatform() instanceof PostgreSQLPlatform && $isBinary) {
-            self::assertTrue(true); // @phpstan-ignore-line
-
-            return; // TODO
-        }
-
         if ($this->getDatabasePlatform() instanceof OraclePlatform && $isBinary) {
             $this->expectException(Exception::class);
             $this->expectExceptionMessage('Unsupported binary field operator');
@@ -700,14 +702,16 @@ class ConditionSqlTest extends TestCase
         $isMysql5x = $this->getDatabasePlatform() instanceof MySQLPlatform && !$isMariadb
             ? str_starts_with($this->getConnection()->getConnection()->getWrappedConnection()->getServerVersion(), '5.') // @phpstan-ignore-line
             : false;
+        // TODO investigate/report MySQL 8.x bug
+        $isBinaryMysql8x = $this->getDatabasePlatform() instanceof MySQLPlatform && $isBinary && !$isMysql5x && !$isMariadb;
 
         self::assertSame([1], $findIdsRegexFx('name', 'John'));
         self::assertSame($isBinary ? [] : [1], $findIdsRegexFx('name', 'john'));
-        self::assertSame($this->getDatabasePlatform() instanceof MySQLPlatform && $isBinary && !$isMysql5x && !$isMariadb ? [] : [13], $findIdsRegexFx('name', 'heiß')); // TODO investigate/report MySQL 8.x bug
+        self::assertSame($isBinaryMysql8x ? [] : [13], $findIdsRegexFx('name', 'heiß'));
         self::assertSame($isBinary ? [] : [13], $findIdsRegexFx('name', 'Heiß'));
         self::assertSame([1], $findIdsRegexFx('name', 'Joh'));
         self::assertSame([1], $findIdsRegexFx('name', 'ohn'));
-        self::assertSame([1, 2, 3, ...($this->getDatabasePlatform() instanceof OraclePlatform ? [] : [4]), 13], $findIdsRegexFx('name', 'a', true));
+        self::assertSame([1, 2, 3, ...($this->getDatabasePlatform() instanceof OraclePlatform ? [] : [4]), 13, 14, 15, 16], $findIdsRegexFx('name', 'a', true));
 
         self::assertSame([1], $findIdsRegexFx('c', '1'));
         self::assertSame([2], $findIdsRegexFx('c', '2000'));
@@ -716,9 +720,14 @@ class ConditionSqlTest extends TestCase
         self::assertSame([1, 2], $findIdsRegexFx('rating', '\.5'));
         self::assertSame([2], $findIdsRegexFx('rating', '2\.5'));
 
-        self::assertSame([9, 10], $findIdsRegexFx('name', '\\\\'));
-        self::assertSame([10], $findIdsRegexFx('name', '\\\\\\\\'));
+        self::assertSame([9, 10, 14, 15, 16], $findIdsRegexFx('name', '\\\\'));
+        self::assertSame([10, 15], $findIdsRegexFx('name', '\\\\\\\\'));
         self::assertSame([], $findIdsRegexFx('name', '\\\\\\\\\\\\'));
+        self::assertSame($isBinaryMysql8x ? [] : [14], $findIdsRegexFx('name', 'hei\\\ß'));
+        self::assertSame($isBinaryMysql8x ? [] : [15], $findIdsRegexFx('name', 'hei\\\\\\\ß'));
+        self::assertSame([], $findIdsRegexFx('name', 'hei\\\\\\\\\\\ß'));
+        self::assertSame([16], $findIdsRegexFx('name', 'hei\\\123'));
+        self::assertSame([], $findIdsRegexFx('name', 'hei\\\\\\\123'));
         self::assertSame([7], $findIdsRegexFx('name', '\.'));
         self::assertSame([12], $findIdsRegexFx('name', '\$'));
         self::assertSame([8], $findIdsRegexFx('name', '/ra'));
@@ -736,12 +745,12 @@ class ConditionSqlTest extends TestCase
             self::assertSame([5], $findIdsRegexFx('name', '\ ra'));
         }
 
-        self::assertSame([2, 3, 13], $findIdsRegexFx('name', '.e'));
-        self::assertSame(array_values(array_diff(range(1, 13), [4])), $findIdsRegexFx('name', '.'));
+        self::assertSame([2, 3, 13, 14, 15, 16], $findIdsRegexFx('name', '.e'));
+        self::assertSame(array_values(array_diff(range(1, 16), [4])), $findIdsRegexFx('name', '.'));
         self::assertSame([5, 6, 7, 8, 9, 11, 12], $findIdsRegexFx('name', 'Sa.ra'));
-        self::assertSame([2, 3, 13], $findIdsRegexFx('name', '[e]'));
-        self::assertSame([1, 2, 3, 13], $findIdsRegexFx('name', '[eo]'));
-        self::assertSame([1, 2, 3, ...($isBinary ? [] : [13])], $findIdsRegexFx('name', '[A-P][aeo]'));
+        self::assertSame([2, 3, 13, 14, 15, 16], $findIdsRegexFx('name', '[e]'));
+        self::assertSame([1, 2, 3, 13, 14, 15, 16], $findIdsRegexFx('name', '[eo]'));
+        self::assertSame([1, 2, 3, ...($isBinary ? [] : [13, 14, 15, 16])], $findIdsRegexFx('name', '[A-P][aeo]'));
         self::assertSame([3], $findIdsRegexFx('name', 'o[^h]'));
         self::assertSame([5, 6, 7, 8, 9, 10, 11, 12], $findIdsRegexFx('name', '^Sa'));
         self::assertSame([], $findIdsRegexFx('name', '^ra'));
@@ -776,8 +785,9 @@ class ConditionSqlTest extends TestCase
             self::assertSame([5, 6], $findIdsRegexFx('name', 'Sa\s'));
             self::assertSame([7, 8, 9, 10, 11, 12], $findIdsRegexFx('name', 'Sa\S'));
             self::assertSame([1, 3], $findIdsRegexFx('name', '\wo'));
-            self::assertSame($this->getDatabasePlatform() instanceof MySQLPlatform && $isBinary ? [] : [13], $findIdsRegexFx('name', 'hei\w$')); // TODO align SQLite with MySQL
-            self::assertSame([10], $findIdsRegexFx('name', '\W\\\\'));
+            // TODO align SQLite binary behaviour with MySQL
+            self::assertSame($isBinary && !($this->getDatabasePlatform() instanceof SQLitePlatform || $this->getDatabasePlatform() instanceof OraclePlatform) ? [] : [13], $findIdsRegexFx('name', 'hei\w$'));
+            self::assertSame([10, 15], $findIdsRegexFx('name', '\W\\\\'));
             if ($type !== 'string' && !$this->getDatabasePlatform() instanceof OraclePlatform) {
                 self::assertSame([5], $findIdsRegexFx('name', '\x20'));
                 self::assertSame([6], $findIdsRegexFx('name', '\n'));

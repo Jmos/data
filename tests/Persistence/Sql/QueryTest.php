@@ -8,9 +8,12 @@ use Atk4\Core\Phpunit\TestCase;
 use Atk4\Data\Persistence\Sql\Connection;
 use Atk4\Data\Persistence\Sql\Exception;
 use Atk4\Data\Persistence\Sql\Expression;
+use Atk4\Data\Persistence\Sql\Mssql\Query as MssqlQuery;
 use Atk4\Data\Persistence\Sql\Mysql\Connection as MysqlConnection;
 use Atk4\Data\Persistence\Sql\Mysql\Expression as MysqlExpression;
 use Atk4\Data\Persistence\Sql\Mysql\Query as MysqlQuery;
+use Atk4\Data\Persistence\Sql\Oracle\Query as OracleQuery;
+use Atk4\Data\Persistence\Sql\Postgresql\Query as PostgresqlQuery;
 use Atk4\Data\Persistence\Sql\Query;
 use Atk4\Data\Persistence\Sql\Sqlite\Connection as SqliteConnection;
 use Atk4\Data\Persistence\Sql\Sqlite\Query as SqliteQuery;
@@ -876,6 +879,24 @@ class QueryTest extends TestCase
                 $this->createMysqlQuery($serverVersion, '[where]')->where('name', 'like', 'foo')->render()[0]
             );
         }
+        self::assertSame(
+            <<<'EOF'
+                where case when pg_typeof("name") = 'bytea'::regtype then replace(regexp_replace(encode(case when pg_typeof("name") = 'bytea'::regtype then decode(case when pg_typeof("name") = 'bytea'::regtype then replace(substring(cast("name" as text) from 3), chr(92), repeat(chr(92), 2)) else '' end, 'hex') else cast(replace(cast("name" as text), chr(92), repeat(chr(92), 2)) as bytea) end, 'escape'), '(?<!\\)((\\\\)*)\\(\d\d\d)', '\1©\3©', 'g'), repeat(chr(92), 2), chr(92)) like regexp_replace(replace(regexp_replace(encode(cast(replace(cast(:a as text), chr(92), repeat(chr(92), 2)) as bytea), 'escape'), '(?<!\\)((\\\\)*)\\(\d\d\d)', '\1©\3©', 'g'), repeat(chr(92), 2), chr(92)), '(\\[\\_%])|(\\)', '\1\2\2', 'g') escape chr(92) else cast("name" as citext) like regexp_replace(:a, '(\\[\\_%])|(\\)', '\1\2\2', 'g') escape chr(92) end
+                EOF,
+            (new PostgresqlQuery('[where]'))->where('name', 'like', 'foo')->render()[0]
+        );
+        self::assertSame(
+            <<<'EOF'
+                where [name] like replace(replace(replace(replace(replace(replace(replace(replace(:a, N'\\', N'\\*'), N'\_', N'\_*'), N'\%', N'\%*'), N'\', N'\\'), N'\\_*', N'\_'), N'\\%*', N'\%'), N'\\\\*', N'\\'), N'[', N'\[') escape N'\'
+                EOF,
+            (new MssqlQuery('[where]'))->where('name', 'like', 'foo')->render()[0]
+        );
+        self::assertSame(
+            <<<'EOF'
+                where "name" like regexp_replace(:xxaaaa, '(\\[\\_%])|(\\)', '\1\2\2') escape chr(92)
+                EOF,
+            (new OracleQuery('[where]'))->where('name', 'like', 'foo')->render()[0]
+        );
 
         // regexp | not regexp
         self::assertSame(
@@ -898,12 +919,21 @@ class QueryTest extends TestCase
         );
         foreach (['8.0', 'MariaDB-11.0'] as $serverVersion) {
             self::assertSame(
-                <<<'EOF'
-                    where `name` regexp concat('(?s)', :a)
-                    EOF,
+                'where `name` regexp concat(\'(?s)\', :a)',
                 $this->createMysqlQuery($serverVersion, '[where]')->where('name', 'regexp', 'foo')->render()[0]
             );
         }
+        self::assertSame(
+            <<<'EOF'
+                where case when pg_typeof("name") = 'bytea'::regtype then replace(regexp_replace(encode(case when pg_typeof("name") = 'bytea'::regtype then decode(case when pg_typeof("name") = 'bytea'::regtype then replace(substring(cast("name" as text) from 3), chr(92), repeat(chr(92), 2)) else '' end, 'hex') else cast(replace(cast("name" as text), chr(92), repeat(chr(92), 2)) as bytea) end, 'escape'), '(?<!\\)((\\\\)*)\\(\d\d\d)', '\1©\3©', 'g'), repeat(chr(92), 2), chr(92)) ~ replace(regexp_replace(encode(cast(replace(cast(:a as text), chr(92), repeat(chr(92), 2)) as bytea), 'escape'), '(?<!\\)((\\\\)*)\\(\d\d\d)', '\1©\3©', 'g'), repeat(chr(92), 2), chr(92)) else cast("name" as citext) ~ :a end
+                EOF,
+            (new PostgresqlQuery('[where]'))->where('name', 'regexp', 'foo')->render()[0]
+        );
+        // TODO test MssqlQuery here once REGEXP is supported https://devblogs.microsoft.com/azure-sql/introducing-regular-expression-regex-support-in-azure-sql-db/
+        self::assertSame(
+            'where regexp_like("name", :xxaaaa, \'in\')',
+            (new OracleQuery('[where]'))->where('name', 'regexp', 'foo')->render()[0]
+        );
     }
 
     public function testWhereInWithNullException(): void
