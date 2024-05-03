@@ -8,6 +8,7 @@ use Atk4\Data\Model;
 use Atk4\Data\Persistence\Sql\Exception;
 use Atk4\Data\Persistence\Sql\ExecuteException;
 use Atk4\Data\Persistence\Sql\Expression;
+use Atk4\Data\Persistence\Sql\Mysql\Connection as MysqlConnection;
 use Atk4\Data\Persistence\Sql\Query;
 use Atk4\Data\Schema\TestCase;
 use Doctrine\DBAL\Platforms\MySQLPlatform;
@@ -256,7 +257,7 @@ class SelectTest extends TestCase
     public function testWhereNumericCompare(array $exprLeft, string $operator, array $exprRight, bool $expectPostgresqlTypeMismatchException = false, bool $expectMssqlTypeMismatchException = false): void
     {
         if ($this->getDatabasePlatform() instanceof OraclePlatform) {
-            $exprLeft[0] = preg_replace('~\d+[eE][\-+]?\d++~', '$0d', $exprLeft[0]);
+            $exprLeft[0] = preg_replace('~\d+[eE][\-+]?\d+~', '$0d', $exprLeft[0]);
         }
 
         $queryWhere = $this->q()->field($this->e('1'), 'v');
@@ -690,7 +691,7 @@ class SelectTest extends TestCase
         // remove once https://jira.mariadb.org/browse/MDEV-27050 is fixed
         $columnAlias = '❤';
         $tableAlias = '🚀';
-        if ($this->getDatabasePlatform() instanceof MySQLPlatform && str_contains($this->getConnection()->getConnection()->getWrappedConnection()->getServerVersion(), 'MariaDB')) { // @phpstan-ignore-line
+        if ($this->getDatabasePlatform() instanceof MySQLPlatform && MysqlConnection::isServerMariaDb($this->getConnection())) {
             $columnAlias = '仮';
             $tableAlias = '名';
         }

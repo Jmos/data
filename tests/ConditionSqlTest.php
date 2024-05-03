@@ -6,6 +6,7 @@ namespace Atk4\Data\Tests;
 
 use Atk4\Data\Exception;
 use Atk4\Data\Model;
+use Atk4\Data\Persistence\Sql\Mysql\Connection as MysqlConnection;
 use Atk4\Data\Schema\TestCase;
 use Atk4\Data\Tests\Schema\MigratorTest;
 use Atk4\Data\ValidationException;
@@ -536,7 +537,11 @@ class ConditionSqlTest extends TestCase
             ['name' => 'hei\123'],
         ]);
 
-        $findIdsLikeFx = function (string $field, string $value, bool $negated = false) use ($u) {
+        $findIdsLikeFx = function (string $field, string $value, bool $negated = false) use ($u, $isBinary) {
+            if ($this->getDatabasePlatform() instanceof SQLServerPlatform && $isBinary) {
+                $value = $u->expr('cast([] collate Latin1_General_100_CS_AS_SC_UTF8 as varchar(max))', [$value]);
+            }
+
             $t = (clone $u)->addCondition($field, ($negated ? 'not ' : '') . 'like', $value);
             $res = array_keys($t->export(null, 'id'));
 
@@ -547,12 +552,6 @@ class ConditionSqlTest extends TestCase
 
             return $res;
         };
-
-        if ($this->getDatabasePlatform() instanceof SQLServerPlatform && $isBinary) {
-            self::assertTrue(true); // @phpstan-ignore-line
-
-            return; // TODO
-        }
 
         if ($this->getDatabasePlatform() instanceof OraclePlatform && $isBinary) {
             $this->expectException(Exception::class);
@@ -697,17 +696,15 @@ class ConditionSqlTest extends TestCase
         }
 
         $isMariadb = $this->getDatabasePlatform() instanceof MySQLPlatform
-            ? str_contains($this->getConnection()->getConnection()->getWrappedConnection()->getServerVersion(), 'MariaDB') // @phpstan-ignore-line
-            : false;
+            && MysqlConnection::isServerMariaDb($this->getConnection());
         $isMysql5x = $this->getDatabasePlatform() instanceof MySQLPlatform && !$isMariadb
-            ? str_starts_with($this->getConnection()->getConnection()->getWrappedConnection()->getServerVersion(), '5.') // @phpstan-ignore-line
-            : false;
-        // TODO investigate/report MySQL 8.x bug
-        $isBinaryMysql8x = $this->getDatabasePlatform() instanceof MySQLPlatform && $isBinary && !$isMysql5x && !$isMariadb;
+            && MysqlConnection::getServerMinorVersion($this->getConnection()) < 600;
+
+        $this->markTestIncompleteOnMySQL8xPlatformAsBinaryLikeIsBroken($isBinary);
 
         self::assertSame([1], $findIdsRegexFx('name', 'John'));
         self::assertSame($isBinary ? [] : [1], $findIdsRegexFx('name', 'john'));
-        self::assertSame($isBinaryMysql8x ? [] : [13], $findIdsRegexFx('name', 'heiß'));
+        self::assertSame([13], $findIdsRegexFx('name', 'heiß'));
         self::assertSame($isBinary ? [] : [13], $findIdsRegexFx('name', 'Heiß'));
         self::assertSame([1], $findIdsRegexFx('name', 'Joh'));
         self::assertSame([1], $findIdsRegexFx('name', 'ohn'));
@@ -723,8 +720,8 @@ class ConditionSqlTest extends TestCase
         self::assertSame([9, 10, 14, 15, 16], $findIdsRegexFx('name', '\\\\'));
         self::assertSame([10, 15], $findIdsRegexFx('name', '\\\\\\\\'));
         self::assertSame([], $findIdsRegexFx('name', '\\\\\\\\\\\\'));
-        self::assertSame($isBinaryMysql8x ? [] : [14], $findIdsRegexFx('name', 'hei\\\ß'));
-        self::assertSame($isBinaryMysql8x ? [] : [15], $findIdsRegexFx('name', 'hei\\\\\\\ß'));
+        self::assertSame([14], $findIdsRegexFx('name', 'hei\\\ß'));
+        self::assertSame([15], $findIdsRegexFx('name', 'hei\\\\\\\ß'));
         self::assertSame([], $findIdsRegexFx('name', 'hei\\\\\\\\\\\ß'));
         self::assertSame([16], $findIdsRegexFx('name', 'hei\\\123'));
         self::assertSame([], $findIdsRegexFx('name', 'hei\\\\\\\123'));
