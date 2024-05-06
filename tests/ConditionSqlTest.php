@@ -538,15 +538,13 @@ class ConditionSqlTest extends TestCase
         ]);
 
         $findIdsLikeFx = function (string $field, string $value, bool $negated = false) use ($u, $isBinary) {
-            if ($this->getDatabasePlatform() instanceof SQLServerPlatform && $isBinary) {
-                $value = $u->expr('cast([] collate Latin1_General_100_CS_AS_SC_UTF8 as varchar(max))', [$value]);
-            }
-
             $t = (clone $u)->addCondition($field, ($negated ? 'not ' : '') . 'like', $value);
             $res = array_keys($t->export(null, 'id'));
 
             $t = (clone $u)->addCondition($field, ($negated ? 'not ' : '') . 'like', $u->dsql()->field($u->expr('[]', [$value])));
-            if (!$this->getConnection()->getConnection()->getNativeConnection() instanceof \mysqli) { // https://bugs.mysql.com/bug.php?id=114659
+            if (!$this->getConnection()->getConnection()->getNativeConnection() instanceof \mysqli // https://bugs.mysql.com/bug.php?id=114659
+                && (!$this->getDatabasePlatform() instanceof SQLServerPlatform || !$isBinary) // string encoding of bound variable is UTF-16
+            ) {
                 self::assertSame(array_keys($t->export(null, 'id')), $res);
             }
 
@@ -570,8 +568,8 @@ class ConditionSqlTest extends TestCase
         self::assertSame([1], $findIdsLikeFx('name', 'J%n'));
         self::assertSame([1], $findIdsLikeFx('name', 'Jo_n'));
         self::assertSame([], $findIdsLikeFx('name', 'J_n'));
-        self::assertSame($isBinary && !($this->getDatabasePlatform() instanceof SQLServerPlatform || $this->getDatabasePlatform() instanceof OraclePlatform) ? [] : [13], $findIdsLikeFx('name', '123_'));
-        self::assertSame($isBinary && !($this->getDatabasePlatform() instanceof PostgreSQLPlatform || $this->getDatabasePlatform() instanceof SQLServerPlatform) ? [13] : [], $findIdsLikeFx('name', '123__'));
+        self::assertSame($isBinary && !$this->getDatabasePlatform() instanceof OraclePlatform ? [] : [13], $findIdsLikeFx('name', '123_'));
+        self::assertSame($isBinary && !$this->getDatabasePlatform() instanceof PostgreSQLPlatform ? [13] : [], $findIdsLikeFx('name', '123__'));
         self::assertSame([], $findIdsLikeFx('name', '123___'));
 
         self::assertSame([1], $findIdsLikeFx('c', '%1%'));

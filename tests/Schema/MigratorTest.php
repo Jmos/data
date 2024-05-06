@@ -114,34 +114,18 @@ class MigratorTest extends TestCase
         $model->addCondition('v', 'MixedCaseß');
         self::assertSameExportUnordered($expectedExport, $model->export(['id']));
 
+        $model->scope()->clear();
+        $model->addCondition('v', '=', (clone $model)->addCondition('id', 3)->action('field', ['v']));
+        self::assertSameExportUnordered($expectedExport, $model->export(['id']));
+
         // TODO
         if (!$this->getDatabasePlatform() instanceof OraclePlatform || !in_array($type, ['text', 'blob'], true)) {
             $model->scope()->clear();
             $model->addCondition('v', 'in', ['MixedCaseß', 'foo']);
             self::assertSameExportUnordered($expectedExport, $model->export(['id']));
-        }
-
-        $fixEncodingForMssqlBinaryFx = function (string $v) use ($isBinary) {
-            return $this->getDatabasePlatform() instanceof SQLServerPlatform && $isBinary
-                ? $this->getConnection()->expr('cast([] collate Latin1_General_100_CS_AS_SC_UTF8 as varchar(max))', [$v])
-                : $v;
-        };
-
-        if (!$this->getDatabasePlatform() instanceof OraclePlatform || !$isBinary) {
-            $model->scope()->clear();
-            $model->addCondition('v', 'like', $fixEncodingForMssqlBinaryFx('MixedCaseß'));
-            self::assertSameExportUnordered($expectedExport, $model->export(['id']));
 
             $model->scope()->clear();
-            $model->addCondition('v', 'like', $fixEncodingForMssqlBinaryFx('%ix__Caseß%'));
-            self::assertSameExportUnordered($expectedExport, $model->export(['id']));
-
-            $model->scope()->clear();
-            $model->addCondition('v', 'regexp', $fixEncodingForMssqlBinaryFx('ix.+Caseß'));
-            $this->markTestIncompleteOnMySQL8xPlatformAsBinaryLikeIsBroken($isBinary);
-            if ($this->getDatabasePlatform() instanceof SQLServerPlatform) {
-                $this->expectExceptionMessage('Unsupported operator');
-            }
+            $model->addCondition('v', 'in', (clone $model)->addCondition('id', 3)->action('field', ['v']));
             self::assertSameExportUnordered($expectedExport, $model->export(['id']));
         }
     }
