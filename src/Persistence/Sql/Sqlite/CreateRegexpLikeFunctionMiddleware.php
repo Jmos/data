@@ -25,16 +25,15 @@ class CreateRegexpLikeFunctionMiddleware implements Middleware
                 $nativeConnection = $connection->getNativeConnection();
                 assert($nativeConnection instanceof \PDO);
 
-                $nativeConnection->sqliteCreateFunction('regexp_like', static function ($value, string $pattern, string $flags = ''): ?bool {
-                    if ($value === null) {
+                $nativeConnection->sqliteCreateFunction('regexp_like', static function ($value, ?string $pattern, string $flags = ''): ?int {
+                    if ($value === null || $pattern === null) {
                         return null;
                     }
 
                     $value = CreateRegexpLikeFunctionMiddleware::castScalarToString($value);
 
-                    if (str_starts_with($pattern, '(?-iu)')) {
-                        $pattern = substr($pattern, strlen('(?-iu)'));
-                        $flags = str_replace('i', '', $flags);
+                    if (str_contains($flags, '-u')) {
+                        $flags = str_replace('-u', '', $flags);
                         $binary = true;
                     } else {
                         $binary = \PHP_VERSION_ID < 80200
@@ -47,7 +46,7 @@ class CreateRegexpLikeFunctionMiddleware implements Middleware
                     $pregPattern = '~' . preg_replace('~(?<!\\\)(?:\\\\\\\)*+\K\~~', '\\\~', $pattern) . '~'
                         . $flags . ($binary ? '' : 'u');
 
-                    return preg_match($pregPattern, $value) === 1;
+                    return preg_match($pregPattern, $value) ? 1 : 0;
                 }, -1, \PDO::SQLITE_DETERMINISTIC);
 
                 return $connection;

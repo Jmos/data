@@ -25,16 +25,15 @@ class CreateRegexpReplaceFunctionMiddleware implements Middleware
                 $nativeConnection = $connection->getNativeConnection();
                 assert($nativeConnection instanceof \PDO);
 
-                $nativeConnection->sqliteCreateFunction('regexp_replace', static function ($value, string $pattern, string $replacement, string $flags = ''): ?string {
-                    if ($value === null) {
+                $nativeConnection->sqliteCreateFunction('regexp_replace', static function ($value, ?string $pattern, ?string $replacement, string $flags = ''): ?string {
+                    if ($value === null || $pattern === null || $replacement === null) {
                         return null;
                     }
 
                     $value = CreateRegexpLikeFunctionMiddleware::castScalarToString($value);
 
-                    if (str_starts_with($pattern, '(?-iu)')) {
-                        $pattern = substr($pattern, strlen('(?-iu)'));
-                        $flags = str_replace('i', '', $flags);
+                    if (str_contains($flags, '-u')) {
+                        $flags = str_replace('-u', '', $flags);
                         $binary = true;
                     } else {
                         $binary = \PHP_VERSION_ID < 80200

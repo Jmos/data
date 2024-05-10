@@ -7,6 +7,8 @@ namespace Atk4\Data\Tests;
 use Atk4\Data\Exception;
 use Atk4\Data\Model;
 use Atk4\Data\Persistence\Sql\Mysql\Connection as MysqlConnection;
+use Atk4\Data\Persistence\Sql\Query;
+use Atk4\Data\Persistence\Sql\RawExpression;
 use Atk4\Data\Schema\TestCase;
 use Atk4\Data\Tests\Schema\MigratorTest;
 use Atk4\Data\ValidationException;
@@ -14,6 +16,7 @@ use Doctrine\DBAL\Platforms\MySQLPlatform;
 use Doctrine\DBAL\Platforms\OraclePlatform;
 use Doctrine\DBAL\Platforms\PostgreSQLPlatform;
 use Doctrine\DBAL\Platforms\SQLServerPlatform;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\DataProviderExternal;
 
 class ConditionSqlTest extends TestCase
@@ -525,6 +528,7 @@ class ConditionSqlTest extends TestCase
             ['name' => 'John', 'c' => 1],
             ['name' => 'Peter', 'c' => 2000],
             ['name' => 'Joe', 'c' => 50],
+            ['name' => ''],
             ['name' => 'Ca_ro%li\ne'],
             ['name' => "Ca\nro.li\\\\ne"],
             ['name' => 'Ca*ro^li$ne'],
@@ -558,88 +562,91 @@ class ConditionSqlTest extends TestCase
 
         self::assertSame([1], $findIdsLikeFx('name', 'John'));
         self::assertSame($isBinary ? [] : [1], $findIdsLikeFx('name', 'john'));
-        self::assertSame([9], $findIdsLikeFx('name', 'heiß'));
-        self::assertSame($isBinary ? [] : [9], $findIdsLikeFx('name', 'Heiß'));
+        self::assertSame([10], $findIdsLikeFx('name', 'heiß'));
+        self::assertSame($isBinary ? [] : [10], $findIdsLikeFx('name', 'Heiß'));
         self::assertSame([], $findIdsLikeFx('name', 'Joh'));
         self::assertSame([1, 3], $findIdsLikeFx('name', 'Jo%'));
-        self::assertSame(array_values(array_diff(range(1, 13), [1, 3])), $findIdsLikeFx('name', 'Jo%', true));
+        self::assertSame(array_values(array_diff(range(1, 14), [1, 3], $this->getDatabasePlatform() instanceof OraclePlatform ? [4] : [])), $findIdsLikeFx('name', 'Jo%', true));
         self::assertSame([1], $findIdsLikeFx('name', '%John%'));
         self::assertSame([1], $findIdsLikeFx('name', 'Jo%n'));
         self::assertSame([1], $findIdsLikeFx('name', 'J%n'));
         self::assertSame([1], $findIdsLikeFx('name', 'Jo_n'));
         self::assertSame([], $findIdsLikeFx('name', 'J_n'));
-        self::assertSame($isBinary && !$this->getDatabasePlatform() instanceof OraclePlatform ? [] : [13], $findIdsLikeFx('name', '123_'));
-        self::assertSame($isBinary && !$this->getDatabasePlatform() instanceof PostgreSQLPlatform ? [13] : [], $findIdsLikeFx('name', '123__'));
+        self::assertSame($isBinary && !$this->getDatabasePlatform() instanceof OraclePlatform ? [] : [14], $findIdsLikeFx('name', '123_'));
+        self::assertSame($isBinary && !$this->getDatabasePlatform() instanceof PostgreSQLPlatform ? [14] : [], $findIdsLikeFx('name', '123__'));
         self::assertSame([], $findIdsLikeFx('name', '123___'));
 
         self::assertSame([1], $findIdsLikeFx('c', '%1%'));
         self::assertSame([2], $findIdsLikeFx('c', '%2000%'));
         self::assertSame([2, 3], $findIdsLikeFx('c', '%0%'));
         self::assertSame([1], $findIdsLikeFx('c', '%0%', true));
-        self::assertSame([4, 5, 6], $findIdsLikeFx('name', '%Ca_ro%'));
-        self::assertSame([4], $findIdsLikeFx('name', '%Ca\_ro%'));
-        self::assertSame([4, 5, 6], $findIdsLikeFx('name', '%ro%li%'));
-        self::assertSame([4], $findIdsLikeFx('name', '%ro\%li%'));
+        self::assertSame([5, 6, 7], $findIdsLikeFx('name', '%Ca_ro%'));
+        self::assertSame([5], $findIdsLikeFx('name', '%Ca\_ro%'));
+        self::assertSame([5, 6, 7], $findIdsLikeFx('name', '%ro%li%'));
+        self::assertSame([5], $findIdsLikeFx('name', '%ro\%li%'));
 
         self::assertSame([], $findIdsLikeFx('name', '%line%'));
-        self::assertSame([4], $findIdsLikeFx('name', '%li\ne%'));
-        self::assertSame([4], $findIdsLikeFx('name', '%li\\\ne%'));
-        self::assertSame([5], $findIdsLikeFx('name', '%li\\\\\ne%'));
-        self::assertSame([5], $findIdsLikeFx('name', '%li\\\\\\\ne%'));
+        self::assertSame([5], $findIdsLikeFx('name', '%li\ne%'));
+        self::assertSame([5], $findIdsLikeFx('name', '%li\\\ne%'));
+        self::assertSame([6], $findIdsLikeFx('name', '%li\\\\\ne%'));
+        self::assertSame([6], $findIdsLikeFx('name', '%li\\\\\\\ne%'));
         self::assertSame([], $findIdsLikeFx('name', '%li\\\\\\\\\ne%'));
         self::assertSame([], $findIdsLikeFx('name', '%li\\\\\\\\\\\ne%'));
-        self::assertSame([4, 5, 6], $findIdsLikeFx('name', '%li%ne%'));
-        self::assertSame([4, 5], $findIdsLikeFx('name', '%li%\ne%'));
-        self::assertSame([4, 5], $findIdsLikeFx('name', '%li%\\\ne%'));
-        self::assertSame([5], $findIdsLikeFx('name', '%li%\\\\\ne%'));
-        self::assertSame([5], $findIdsLikeFx('name', '%li%\\\\\\\ne%'));
+        self::assertSame([5, 6, 7], $findIdsLikeFx('name', '%li%ne%'));
+        self::assertSame([5, 6], $findIdsLikeFx('name', '%li%\ne%'));
+        self::assertSame([5, 6], $findIdsLikeFx('name', '%li%\\\ne%'));
+        self::assertSame([6], $findIdsLikeFx('name', '%li%\\\\\ne%'));
+        self::assertSame([6], $findIdsLikeFx('name', '%li%\\\\\\\ne%'));
         self::assertSame([], $findIdsLikeFx('name', '%li%\\\\\\\\\ne%'));
         self::assertSame([], $findIdsLikeFx('name', '%li%\\\\\\\\\\\ne%'));
         self::assertSame([], $findIdsLikeFx('name', '%li\%ne%'));
-        self::assertSame([4, 5], $findIdsLikeFx('name', '%li\\\%ne%'));
+        self::assertSame([5, 6], $findIdsLikeFx('name', '%li\\\%ne%'));
         self::assertSame([], $findIdsLikeFx('name', '%li\\\\\%ne%'));
-        self::assertSame([5], $findIdsLikeFx('name', '%li\\\\\\\%ne%'));
+        self::assertSame([6], $findIdsLikeFx('name', '%li\\\\\\\%ne%'));
         self::assertSame([], $findIdsLikeFx('name', '%li\\\\\\\\\%ne%'));
         self::assertSame([], $findIdsLikeFx('name', '%li\%e%'));
-        self::assertSame([4, 5], $findIdsLikeFx('name', '%li\\\%e%'));
+        self::assertSame([5, 6], $findIdsLikeFx('name', '%li\\\%e%'));
         self::assertSame([], $findIdsLikeFx('name', '%li\\\\\%e%'));
-        self::assertSame([5], $findIdsLikeFx('name', '%li\\\\\\\%e%'));
+        self::assertSame([6], $findIdsLikeFx('name', '%li\\\\\\\%e%'));
         self::assertSame([], $findIdsLikeFx('name', '%li\\\\\\\\\%e%'));
-        self::assertSame([10], $findIdsLikeFx('name', 'hei\ß'));
-        self::assertSame([10], $findIdsLikeFx('name', 'hei\\\ß'));
-        self::assertSame([11], $findIdsLikeFx('name', 'hei\\\\\ß'));
-        self::assertSame([11], $findIdsLikeFx('name', 'hei\\\\\\\ß'));
+        self::assertSame([11], $findIdsLikeFx('name', 'hei\ß'));
+        self::assertSame([11], $findIdsLikeFx('name', 'hei\\\ß'));
+        self::assertSame([12], $findIdsLikeFx('name', 'hei\\\\\ß'));
+        self::assertSame([12], $findIdsLikeFx('name', 'hei\\\\\\\ß'));
         self::assertSame([], $findIdsLikeFx('name', 'hei\\\\\\\\\ß'));
-        self::assertSame([12], $findIdsLikeFx('name', 'hei\123'));
-        self::assertSame([12], $findIdsLikeFx('name', 'hei\\\123'));
+        self::assertSame([13], $findIdsLikeFx('name', 'hei\123'));
+        self::assertSame([13], $findIdsLikeFx('name', 'hei\\\123'));
         self::assertSame([], $findIdsLikeFx('name', 'hei\\\\\123'));
 
-        self::assertSame([4], $findIdsLikeFx('name', '%l_\ne%'));
-        self::assertSame([5], $findIdsLikeFx('name', '%l__\ne%'));
-        self::assertSame([4, 5], $findIdsLikeFx('name', '%li%%\ne%'));
-        self::assertSame([5], $findIdsLikeFx('name', '%.%'));
-        self::assertSame([5], $findIdsLikeFx('name', '%.li%ne'));
+        self::assertSame([5], $findIdsLikeFx('name', '%l_\ne%'));
+        self::assertSame([6], $findIdsLikeFx('name', '%l__\ne%'));
+        self::assertSame([5, 6], $findIdsLikeFx('name', '%li%%\ne%'));
+        self::assertSame([6], $findIdsLikeFx('name', '%.%'));
+        self::assertSame([6], $findIdsLikeFx('name', '%.li%ne'));
         self::assertSame([], $findIdsLikeFx('name', '%.li%ne\\'));
         self::assertSame([], $findIdsLikeFx('name', '%.li%ne\\\\'));
-        self::assertSame([6], $findIdsLikeFx('name', '%*%'));
+        self::assertSame([7], $findIdsLikeFx('name', '%*%'));
         self::assertSame([], $findIdsLikeFx('name', '%*li%ne'));
-        self::assertSame([6, 8], $findIdsLikeFx('name', '%^%'));
-        self::assertSame([6], $findIdsLikeFx('name', '%$%'));
-        self::assertSame([7, 8], $findIdsLikeFx('name', '%[%'));
-        self::assertSame([8], $findIdsLikeFx('name', '%\[%'));
-        self::assertSame([8], $findIdsLikeFx('name', '%\\\[%'));
+        self::assertSame([7, 9], $findIdsLikeFx('name', '%^%'));
+        self::assertSame([7], $findIdsLikeFx('name', '%$%'));
+        self::assertSame([8, 9], $findIdsLikeFx('name', '%[%'));
+        self::assertSame([9], $findIdsLikeFx('name', '%\[%'));
+        self::assertSame([9], $findIdsLikeFx('name', '%\\\[%'));
         self::assertSame([], $findIdsLikeFx('name', '%\\\\\[%'));
-        self::assertSame([7, 8], $findIdsLikeFx('name', '%]%'));
-        self::assertSame([7], $findIdsLikeFx('name', '%[n]%'));
-        self::assertSame([8], $findIdsLikeFx('name', '%^n%'));
-        self::assertSame([8], $findIdsLikeFx('name', '%[^n]%'));
+        self::assertSame([8, 9], $findIdsLikeFx('name', '%]%'));
+        self::assertSame([8], $findIdsLikeFx('name', '%[n]%'));
+        self::assertSame([9], $findIdsLikeFx('name', '%^n%'));
+        self::assertSame([9], $findIdsLikeFx('name', '%[^n]%'));
 
         if ($type !== 'string') {
-            self::assertStringStartsWith("Ca\nro", $u->load(5)->get('name'));
-            self::assertSame([5], $findIdsLikeFx('name', "Ca\n%"));
+            self::assertStringStartsWith("Ca\nro", $u->load(6)->get('name'));
+            self::assertSame([6], $findIdsLikeFx('name', "Ca\n%"));
             self::assertSame([], $findIdsLikeFx('name', "Ca\\\n%"));
             self::assertSame([], $findIdsLikeFx('name', 'Ca %'));
         }
+
+        self::assertSame($this->getDatabasePlatform() instanceof OraclePlatform ? [] : [4], array_keys((clone $u)->addCondition('name', 'like', $u->expr('\'\''))->export(null, 'id')));
+        self::assertSame([], array_keys((clone $u)->addCondition('name', 'like', $u->expr('null'))->export(null, 'id')));
     }
 
     /**
@@ -816,5 +823,85 @@ class ConditionSqlTest extends TestCase
             self::assertSame([1], $findIdsRegexFx('name', implode('', array_map(static fn ($v) => '(' . $v . ')?', $hugeList)) . 'John'));
         }
         self::assertSame([1], $findIdsRegexFx('name', implode('', array_map(static fn ($v) => '((' . $v . ')?', array_slice($hugeList, 0, 98))) . 'John' . str_repeat(')', min(count($hugeList), 98))));
+    }
+
+    /**
+     * @dataProvider provideNullLikeRegexpConditionCases
+     *
+     * @param 'like'|'regexp' $operator
+     */
+    #[DataProvider('provideNullLikeRegexpConditionCases')]
+    public function testNullLikeRegexpCondition(string $operator, ?bool $expectedResult, ?string $value, ?string $pattern, bool $negated): void
+    {
+        if ($this->getDatabasePlatform() instanceof MySQLPlatform
+            && !MysqlConnection::isServerMariaDb($this->getConnection())
+            && MysqlConnection::getServerMinorVersion($this->getConnection()) < 600
+            && $operator === 'regexp' && $pattern === ''
+        ) {
+            // https://dbfiddle.uk/diAepf8V
+            self::markTestIncomplete('MySQL 5.x does not support REGEXP with empty pattern');
+        }
+
+        if ($this->getDatabasePlatform() instanceof SQLServerPlatform && $operator === 'regexp') {
+            // https://devblogs.microsoft.com/azure-sql/introducing-regular-expression-regex-support-in-azure-sql-db/
+            self::markTestIncomplete('MSSQL has no REGEXP support yet');
+        }
+
+        // TODO Oracle always converts empty string to null
+        // https://stackoverflow.com/questions/13278773/null-vs-empty-string-in-oracle#13278879
+        if ($this->getDatabasePlatform() instanceof OraclePlatform && ($value === '' || $pattern === '') && $expectedResult !== null) {
+            self::assertTrue(true); // @phpstan-ignore-line
+
+            return;
+        }
+
+        $makeWhereExprFx = function ($value, $pattern, $negated) use ($operator) {
+            $dsql = $this->getConnection()->dsql();
+
+            return new RawExpression(\Closure::bind(static function () use ($operator, $value, $pattern, $negated, $dsql) {
+                $escapeStringLiteralFx = static function ($value) use ($dsql) {
+                    return $value === null
+                        ? 'null'
+                        : $dsql->escapeStringLiteral($value);
+                };
+
+                // workaround Oracle "expr is null" limitation
+                // https://dbfiddle.uk/9rtTvTDH
+                $boolToIntFx = static function ($sql) {
+                    $oneIfTrue = 'case when (' . $sql . ') then 1 else 0 end';
+                    $oneIfFalse = 'case when not(' . $sql . ') then 1 else 0 end';
+
+                    return 'case when ' . $oneIfTrue . ' + ' . $oneIfFalse . ' = 0 then null else ' . $oneIfTrue . ' end';
+                };
+
+                $res = $operator === 'like'
+                    ? $dsql->_renderConditionLikeOperator($negated, $escapeStringLiteralFx($value), $escapeStringLiteralFx($pattern))
+                    : $dsql->_renderConditionRegexpOperator($negated, $escapeStringLiteralFx($value), $escapeStringLiteralFx($pattern));
+
+                return $boolToIntFx($res);
+            }, null, Query::class)());
+        };
+
+        $dsql = $this->getConnection()->dsql()
+            ->field($makeWhereExprFx($value, $pattern, $negated), 'v');
+
+        self::assertSame(['v' => $expectedResult === null ? null : ($expectedResult ? '1' : '0')], $dsql->getRow());
+    }
+
+    /**
+     * @return iterable<list<mixed>>
+     */
+    public static function provideNullLikeRegexpConditionCases(): iterable
+    {
+        foreach (['like', 'regexp'] as $operator) {
+            foreach ([false, true] as $negated) {
+                yield [$operator, !$negated, '', '', $negated];
+                yield [$operator, $negated, '', 'x', $negated];
+                yield [$operator, $negated, 'x', $operator === 'regexp' ? '^$' : '', $negated];
+                yield [$operator, null, null, null, $negated];
+                yield [$operator, null, null, '', $negated];
+                yield [$operator, null, '', null, $negated];
+            }
+        }
     }
 }
