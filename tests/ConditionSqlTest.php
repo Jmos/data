@@ -555,21 +555,17 @@ class ConditionSqlTest extends TestCase
             return $res;
         };
 
-        if ($this->getDatabasePlatform() instanceof OraclePlatform && $isBinary) {
-            $this->expectException(Exception::class);
-            $this->expectExceptionMessage('Unsupported binary field operator');
-        }
-
         self::assertSame([1], $findIdsLikeFx('name', 'John'));
         self::assertSame($isBinary ? [] : [1], $findIdsLikeFx('name', 'john'));
         self::assertSame([10], $findIdsLikeFx('name', 'heiß'));
         self::assertSame($isBinary ? [] : [10], $findIdsLikeFx('name', 'Heiß'));
         self::assertSame([], $findIdsLikeFx('name', 'Joh'));
         self::assertSame([1, 3], $findIdsLikeFx('name', 'Jo%'));
-        self::assertSame(array_values(array_diff(range(1, 14), [1, 3], $this->getDatabasePlatform() instanceof OraclePlatform ? [4] : [])), $findIdsLikeFx('name', 'Jo%', true));
+        self::assertSame(array_values(array_diff(range(1, 14), [1, 3], $this->getDatabasePlatform() instanceof OraclePlatform && !$isBinary ? [4] : [])), $findIdsLikeFx('name', 'Jo%', true));
         self::assertSame([1], $findIdsLikeFx('name', '%John%'));
         self::assertSame([1], $findIdsLikeFx('name', 'Jo%n'));
         self::assertSame([1], $findIdsLikeFx('name', 'J%n'));
+        self::assertSame([], $findIdsLikeFx('name', '%W%')); // bin2hex('W') = substr(bin2hex('Peter'), 3, 2)
         self::assertSame([1], $findIdsLikeFx('name', 'Jo_n'));
         self::assertSame([], $findIdsLikeFx('name', 'J_n'));
         self::assertSame($isBinary ? [] : [14], $findIdsLikeFx('name', '123_'));
@@ -714,6 +710,7 @@ class ConditionSqlTest extends TestCase
         self::assertSame($isBinary ? [] : [13], $findIdsRegexFx('name', 'Heiß'));
         self::assertSame([1], $findIdsRegexFx('name', 'Joh'));
         self::assertSame([1], $findIdsRegexFx('name', 'ohn'));
+        self::assertSame([], $findIdsRegexFx('name', 'W'));
         self::assertSame(array_values(array_diff(range(1, 17), [...($this->getDatabasePlatform() instanceof OraclePlatform ? [4] : []), 5, 6, 7, 8, 9, 10, 11, 12])), $findIdsRegexFx('name', 'a', true));
 
         self::assertSame([1], $findIdsRegexFx('c', '1'));
@@ -773,6 +770,7 @@ class ConditionSqlTest extends TestCase
         self::assertSame([1], $findIdsRegexFx('name', 'J.*n'));
         self::assertSame([1], $findIdsRegexFx('name', 'John.*'));
         self::assertSame([2], $findIdsRegexFx('c', '20*$'));
+        self::assertSame([], $findIdsRegexFx('name', '.*W.*'));
         self::assertSame([1], $findIdsRegexFx('name', 'J.?hn'));
         self::assertSame([], $findIdsRegexFx('name', 'J.?n'));
         self::assertSame([], $findIdsRegexFx('c', '20?$'));
