@@ -97,17 +97,37 @@ class MigratorTest extends TestCase
 
         $this->createMigrator($model)->create();
 
-        $model->import([['v' => 'mixedcase'], ['v' => 'MIXEDCASE'], ['v' => 'MixedCase']]);
+        $model->import([
+            ['v' => 'mixedcaseß'],
+            ['v' => 'MIXEDCASEß'],
+            ['v' => 'MixedCaseß'],
+        ]);
 
-        $model->addCondition('v', 'MixedCase');
-        $model->setOrder($this->getDatabasePlatform() instanceof OraclePlatform && in_array($type, ['text', 'blob'], true) ? 'id' : 'v');
+        if (!$this->getDatabasePlatform() instanceof OraclePlatform || !in_array($type, ['text', 'blob'], true)) {
+            $model->setOrder('v');
+        }
 
-        self::assertSameExportUnordered(
-            $isBinary
-                ? [['id' => 3]]
-                : [['id' => 1], ['id' => 2], ['id' => 3]],
-            $model->export(['id'])
-        );
+        $expectedExport = $isBinary
+            ? [['id' => 3]]
+            : [['id' => 1], ['id' => 2], ['id' => 3]];
+
+        $model->addCondition('v', 'MixedCaseß');
+        self::assertSameExportUnordered($expectedExport, $model->export(['id']));
+
+        $model->scope()->clear();
+        $model->addCondition('v', '=', (clone $model)->addCondition('id', 3)->action('field', ['v']));
+        self::assertSameExportUnordered($expectedExport, $model->export(['id']));
+
+        // TODO
+        if (!$this->getDatabasePlatform() instanceof OraclePlatform || !in_array($type, ['text', 'blob'], true)) {
+            $model->scope()->clear();
+            $model->addCondition('v', 'in', ['MixedCaseß', 'foo']);
+            self::assertSameExportUnordered($expectedExport, $model->export(['id']));
+
+            $model->scope()->clear();
+            $model->addCondition('v', 'in', (clone $model)->addCondition('id', 3)->action('field', ['v']));
+            self::assertSameExportUnordered($expectedExport, $model->export(['id']));
+        }
     }
 
     /**
@@ -177,12 +197,14 @@ class MigratorTest extends TestCase
 
         $this->createMigrator($model)->create();
 
-        $model->import([['v' => $str . (
-            // MSSQL database ignores trailing \0 characters even with binary comparison
-            // https://dba.stackexchange.com/questions/48660/comparing-binary-0x-and-0x00-turns-out-to-be-equal-on-sql-server
-            $isBinary ? ($this->getDatabasePlatform() instanceof SQLServerPlatform ? ' ' : "\0") : '.'
-        )]]);
-        $model->import([['v' => $str]]);
+        $model->import([
+            ['v' => $str . (
+                // MSSQL database ignores trailing \0 characters even with binary comparison
+                // https://dba.stackexchange.com/questions/48660/comparing-binary-0x-and-0x00-turns-out-to-be-equal-on-sql-server
+                $isBinary ? ($this->getDatabasePlatform() instanceof SQLServerPlatform ? ' ' : "\0") : '.'
+            )],
+            ['v' => $str],
+        ]);
 
         $model->addCondition('v', $str);
         $rows = $model->export();
@@ -201,9 +223,7 @@ class MigratorTest extends TestCase
 
         // functional test for Expression::escapeStringLiteral() method
         $strRaw = $model->getPersistence()->typecastSaveField($model->getField('v'), $str);
-        $strRawSql = \Closure::bind(static function () use ($model, $strRaw) {
-            return $model->expr('')->escapeStringLiteral($strRaw);
-        }, null, Expression::class)();
+        $strRawSql = \Closure::bind(static fn () => $model->expr('')->escapeStringLiteral($strRaw), null, Expression::class)();
         $query = $this->getConnection()->dsql()
             ->field($model->expr($strRawSql));
         $resRaw = $query->getOne();
@@ -227,9 +247,7 @@ class MigratorTest extends TestCase
             }
 
             self::assertSame($length, mb_strlen($str));
-            $strSql = \Closure::bind(static function () use ($model, $str) {
-                return $model->expr('')->escapeStringLiteral($str);
-            }, null, Expression::class)();
+            $strSql = \Closure::bind(static fn () => $model->expr('')->escapeStringLiteral($str), null, Expression::class)();
             $query = $this->getConnection()->dsql()
                 ->field($model->expr($strSql));
             $res = $query->getOne();
