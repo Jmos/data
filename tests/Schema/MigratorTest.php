@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Atk4\Data\Tests\Schema;
 
+use Atk4\Data\Exception;
 use Atk4\Data\Field\PasswordField;
 use Atk4\Data\Model;
 use Atk4\Data\Persistence\Sql\Expression;
@@ -13,7 +14,9 @@ use Doctrine\DBAL\Exception\TableExistsException;
 use Doctrine\DBAL\Exception\TableNotFoundException;
 use Doctrine\DBAL\Platforms\OraclePlatform;
 use Doctrine\DBAL\Platforms\PostgreSQLPlatform;
+use Doctrine\DBAL\Platforms\SQLitePlatform;
 use Doctrine\DBAL\Platforms\SQLServerPlatform;
+use Doctrine\DBAL\Types\Type;
 use PHPUnit\Framework\Attributes\DataProvider;
 
 class MigratorTest extends TestCase
@@ -24,14 +27,17 @@ class MigratorTest extends TestCase
             ->table($table)
             ->id()
             ->field('foo')
-            ->field('bar', ['type' => 'integer'])
+            ->field('bar', ['type' => 'integer', 'nullable' => false])
             ->field('baz', ['type' => 'text'])
+            ->field('bin1', ['type' => 'binary'])
+            ->field('bin2', ['type' => 'blob'])
             ->field('bl', ['type' => 'boolean'])
             ->field('tm', ['type' => 'time'])
             ->field('dt', ['type' => 'date'])
             ->field('dttm', ['type' => 'datetime'])
             ->field('fl', ['type' => 'float'])
             ->field('mn', ['type' => 'atk4_money'])
+            ->field('json', ['type' => 'json'])
             ->field('lobj', ['type' => 'atk4_local_object']);
     }
 
@@ -287,6 +293,73 @@ class MigratorTest extends TestCase
         self::assertSame([
             ['id' => 1, 'name' => 'john', 'password' => null, 'is_admin' => true, 'notes' => 'some long notes', 'main_role_id' => null],
         ], $user->export());
+    }
+
+    public function testIntrospectTableToModelBasic(): void
+    {
+        $creatingMigrator = $this->createDemoMigrator('user')->create();
+        $introspectedModel = $this->createMigrator()->introspectTableToModel('user');
+
+        $expectedFields = [];
+        foreach ($creatingMigrator->table->getColumns() as $column) {
+            $expectedFields[$column->getName()] = [
+                'type' => Type::getTypeRegistry()->lookupName($column->getType()), // TODO simplify once https://github.com/doctrine/dbal/pull/6130 is merged
+                'nullable' => !$column->getNotnull(),
+            ];
+        }
+
+        $introspectedFields = [];
+        foreach ($introspectedModel->getFields() as $field) {
+            $introspectedFields[$field->shortName] = [
+                'type' => $field->type,
+                'nullable' => $field->nullable && !$field->required,
+            ];
+        }
+
+        // TODO fix DBAL introspection
+        if ($this->getDatabasePlatform() instanceof SQLitePlatform) {
+            $expectedFields['bin1']['type'] = 'blob';
+            $expectedFields['mn']['type'] = 'float';
+            $expectedFields['json']['type'] = 'text';
+            $expectedFields['lobj']['type'] = 'string';
+        } elseif ($this->getDatabasePlatform() instanceof PostgreSQLPlatform) {
+            $expectedFields['foo']['type'] = 'text';
+            $expectedFields['bin1']['type'] = 'blob';
+        } elseif ($this->getDatabasePlatform() instanceof SQLServerPlatform) {
+            $expectedFields['baz']['type'] = 'string';
+        } elseif ($this->getDatabasePlatform() instanceof OraclePlatform) {
+            $expectedFields['bin1']['type'] = 'string';
+            $expectedFields['bin2']['type'] = 'text';
+        }
+
+        self::assertSame($expectedFields, $introspectedFields);
+    }
+
+    public function testIntrospectTableToModelPrimaryKeyNonFirstColumn(): void
+    {
+        $this->createMigrator()
+            ->table('t')
+            ->field('a')
+            ->id()
+            ->field('b')
+            ->create();
+
+        $model = $this->createMigrator()->introspectTableToModel('t');
+
+        self::assertSame(['a', 'id', 'b'], array_keys($model->getFields()));
+        self::assertSame('id', $model->idField);
+    }
+
+    public function testIntrospectTableToModelNoPrimaryKeyException(): void
+    {
+        $this->createMigrator()
+            ->table('t')
+            ->field('a')
+            ->create();
+
+        $this->expectException(Exception::class);
+        $this->expectExceptionMessage('Table must contain exactly one primary key');
+        $this->createMigrator()->introspectTableToModel('t');
     }
 }
 
