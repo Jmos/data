@@ -28,6 +28,8 @@ class MigratorTest extends TestCase
             ->id()
             ->field('foo')
             ->field('bar', ['type' => 'integer', 'nullable' => false])
+            ->field('ismall', ['type' => 'smallint'])
+            ->field('ibig', ['type' => 'bigint'])
             ->field('baz', ['type' => 'text'])
             ->field('bin1', ['type' => 'binary'])
             ->field('bin2', ['type' => 'blob'])
@@ -316,20 +318,12 @@ class MigratorTest extends TestCase
             ];
         }
 
-        // TODO fix DBAL introspection
+        // TODO fix DBAL column comment type hint
+        // see PlatformFixColumnCommentTypeHintTrait trait used for MSSQL and Oracle platforms
         if ($this->getDatabasePlatform() instanceof SQLitePlatform) {
-            $expectedFields['bin1']['type'] = 'blob';
-            $expectedFields['mn']['type'] = 'float';
-            $expectedFields['json']['type'] = 'text';
-            $expectedFields['lobj']['type'] = 'string';
+            $expectedFields['bin1']['type'] = 'blob'; // should be "binary"
         } elseif ($this->getDatabasePlatform() instanceof PostgreSQLPlatform) {
-            $expectedFields['foo']['type'] = 'text';
-            $expectedFields['bin1']['type'] = 'blob';
-        } elseif ($this->getDatabasePlatform() instanceof SQLServerPlatform) {
-            $expectedFields['baz']['type'] = 'string';
-        } elseif ($this->getDatabasePlatform() instanceof OraclePlatform) {
-            $expectedFields['bin1']['type'] = 'string';
-            $expectedFields['bin2']['type'] = 'text';
+            $expectedFields['bin1']['type'] = 'blob'; // should be "binary"
         }
 
         self::assertSame($expectedFields, $introspectedFields);

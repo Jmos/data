@@ -53,6 +53,9 @@ trait PlatformTrait
     {
         parent::initializeDoctrineTypeMappings();
 
+        $this->doctrineTypeMapping['atk4__cichar'] = 'string';
+        $this->doctrineTypeMapping['atk4__civarchar'] = 'string';
+
         // https://github.com/doctrine/dbal/pull/5495
         $this->doctrineTypeMapping['citext'] = 'text';
     }
