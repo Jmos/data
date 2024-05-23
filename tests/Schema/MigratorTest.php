@@ -285,7 +285,28 @@ class MigratorTest extends TestCase
         yield ['blob', true, 256 * 1024];
     }
 
-    public function testSetModelCreate(): void
+    public function testAssertTableExists(): void
+    {
+        $this->createMigrator()
+            ->table('t')
+            ->id()
+            ->create();
+
+        self::assertTrue($this->createMigrator()->isTableExists('t'));
+
+        $this->createMigrator()->assertTableExists('t');
+    }
+
+    public function testAssertTableExistsException(): void
+    {
+        self::assertFalse($this->createMigrator()->isTableExists('t'));
+
+        $this->expectException(Exception::class);
+        $this->expectExceptionMessage('Table does not exist');
+        $this->createMigrator()->assertTableExists('t');
+    }
+
+    public function testCreateSetModel(): void
     {
         $user = new TestUser($this->db);
         $this->createMigrator($user)->create();
@@ -329,6 +350,13 @@ class MigratorTest extends TestCase
         self::assertSame($expectedFields, $introspectedFields);
     }
 
+    public function testIntrospectTableToModelTableDoesNotExistException(): void
+    {
+        $this->expectException(Exception::class);
+        $this->expectExceptionMessage('Table does not exist');
+        $this->createMigrator()->introspectTableToModel('t');
+    }
+
     public function testIntrospectTableToModelPrimaryKeyNonFirstColumn(): void
     {
         $this->createMigrator()
@@ -354,6 +382,20 @@ class MigratorTest extends TestCase
         $this->expectException(Exception::class);
         $this->expectExceptionMessage('Table must contain exactly one primary key');
         $this->createMigrator()->introspectTableToModel('t');
+    }
+
+    public function testIntrospectTableToModelSetPersistence(): void
+    {
+        $this->createMigrator()
+            ->table('t')
+            ->id()
+            ->create();
+
+        $model = (new Migrator($this->getConnection()))->introspectTableToModel('t');
+        self::assertFalse($model->issetPersistence());
+
+        $model = $this->createMigrator()->introspectTableToModel('t');
+        self::assertTrue($model->issetPersistence());
     }
 }
 
