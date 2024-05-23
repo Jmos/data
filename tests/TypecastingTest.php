@@ -9,9 +9,13 @@ use Atk4\Data\Field;
 use Atk4\Data\Model;
 use Atk4\Data\Schema\TestCase;
 use Doctrine\DBAL\Platforms\AbstractPlatform;
+use Doctrine\DBAL\Platforms\MySQLPlatform;
 use Doctrine\DBAL\Platforms\OraclePlatform;
+use Doctrine\DBAL\Platforms\PostgreSQLPlatform;
 use Doctrine\DBAL\Platforms\SQLitePlatform;
+use Doctrine\DBAL\Platforms\SQLServerPlatform;
 use Doctrine\DBAL\Types as DbalTypes;
+use PHPUnit\Framework\ExpectationFailedException;
 
 class TypecastingTest extends TestCase
 {
@@ -38,16 +42,17 @@ class TypecastingTest extends TestCase
     {
         $dbData = [
             'types' => [
+                '_types' => ['date' => 'date', 'datetime' => 'datetime', 'time' => 'time', 'json' => 'json'],
                 [
                     'string' => 'foo',
-                    'date' => '2013-02-20',
-                    'datetime' => '2013-02-20 20:00:12.000000',
-                    'time' => '12:00:50.000000',
+                    'date' => new \DateTime('2013-02-20 UTC'),
+                    'datetime' => new \DateTime('2013-02-20 20:00:12 UTC'),
+                    'time' => new \DateTime('1970-01-01 12:00:50 UTC'),
                     'boolean' => true,
                     'integer' => 2940,
                     'money' => 8.2,
                     'float' => 8.20234376757473,
-                    'json' => '[1,2,3]',
+                    'json' => [1, 2, 3],
                 ],
             ],
         ];
@@ -84,30 +89,30 @@ class TypecastingTest extends TestCase
                 1 => [
                     'id' => 1,
                     'string' => 'foo',
-                    'date' => '2013-02-20',
-                    'datetime' => '2013-02-20 20:00:12.000000',
-                    'time' => '12:00:50.000000',
+                    'date' => new \DateTime('2013-02-20 UTC'),
+                    'datetime' => new \DateTime('2013-02-20 20:00:12 UTC'),
+                    'time' => new \DateTime('1970-01-01 12:00:50 UTC'),
                     'boolean' => true,
                     'integer' => 2940,
                     'money' => 8.2,
                     'float' => 8.20234376757473,
-                    'json' => '[1,2,3]',
+                    'json' => [1, 2, 3],
                 ],
                 [
                     'id' => 2,
                     'string' => 'foo',
-                    'date' => '2013-02-20',
-                    'datetime' => '2013-02-20 20:00:12.000000',
-                    'time' => '12:00:50.000000',
+                    'date' => new \DateTime('2013-02-20 UTC'),
+                    'datetime' => new \DateTime('2013-02-20 20:00:12 UTC'),
+                    'time' => new \DateTime('1970-01-01 12:00:50 UTC'),
                     'boolean' => true,
                     'integer' => 2940,
                     'money' => 8.2,
                     'float' => 8.20234376757473,
-                    'json' => '[1,2,3]',
+                    'json' => [1, 2, 3],
                 ],
             ],
         ];
-        self::assertSame($dbData, $this->getDb());
+        self::assertSameExportUnordered($dbData, $this->getDb());
 
         [$first, $duplicate] = $m->export();
 
@@ -142,6 +147,7 @@ class TypecastingTest extends TestCase
 
         $dbData = [
             'types' => [
+                '_types' => ['date' => 'date', 'datetime' => 'datetime', 'time' => 'time', 'decimal' => 'decimal', 'json' => 'json'],
                 1 => $row = [
                     'id' => 1,
                     'string' => '',
@@ -215,11 +221,20 @@ class TypecastingTest extends TestCase
         self::assertSame([], $mm->getDirtyRef());
 
         $mm->save();
-        self::assertSame($fixEmptyStringForOracleFx($dbData), $this->getDb());
+
+        unset($dbData['types']['_types']);
+        $dbData['types'][1]['id'] = '1';
+        $dbData['types'][1]['date'] = null;
+        $dbData['types'][1]['datetime'] = null;
+        $dbData['types'][1]['time'] = null;
+        $dbData['types'][1]['decimal'] = null;
+        $dbData['types'][1]['json'] = null;
+        $dbData['types'] = [$dbData['types'][1]];
+        self::assertSame($fixEmptyStringForOracleFx($dbData['types']), $m->export(null, null, false));
 
         $m->createEntity()->setMulti(array_diff_key($mm->get(), ['id' => true]))->save();
-        $dbData['types'][2] = [
-            'id' => 2,
+        $dbData['types'][1] = [
+            'id' => '2',
             'string' => '',
             'text' => '',
             'date' => null,
@@ -234,7 +249,7 @@ class TypecastingTest extends TestCase
             'object' => null,
             'local-object' => null,
         ];
-        self::assertSame($fixEmptyStringForOracleFx($dbData), $this->getDb());
+        self::assertSame($fixEmptyStringForOracleFx($dbData['types']), $m->export(null, null, false));
     }
 
     public function testTypecastNull(): void
@@ -356,10 +371,11 @@ class TypecastingTest extends TestCase
     {
         $dbData = [
             'types' => [
+                '_types' => ['date' => 'date', 'datetime' => 'datetime', 'time' => 'time'],
                 $row = [
-                    'date' => '2013-02-20',
-                    'datetime' => '2013-02-20 20:00:12.235689',
-                    'time' => '12:00:50.235689',
+                    'date' => new \DateTime('2013-02-20 UTC'),
+                    'datetime' => new \DateTime('2013-02-20 20:00:12.235689 UTC'),
+                    'time' => new \DateTime('1970-01-01  12:00:50.235689 UTC'),
                     'b1' => true,
                     'b2' => false,
                     'integer' => '2940',
@@ -386,6 +402,13 @@ class TypecastingTest extends TestCase
 
         self::assertSame(1, $mm->getId());
         self::assertSame(1, $mm->get('id'));
+        if ($this->getDatabasePlatform() instanceof MySQLPlatform // TODO create DBAL PR to create DB column with microseconds support by default https://github.com/doctrine/dbal/blob/4.0.2/src/Platforms/AbstractMySQLPlatform.php#L171
+            || $this->getDatabasePlatform() instanceof PostgreSQLPlatform
+            || $this->getDatabasePlatform() instanceof SQLServerPlatform
+            || $this->getDatabasePlatform() instanceof OraclePlatform
+        ) {
+            $this->expectException(ExpectationFailedException::class);
+        }
         self::assertSame('2013-02-21 05:00:12.235689', $mm->get('datetime')->format('Y-m-d H:i:s.u'));
         self::assertSame('2013-02-20', $mm->get('date')->format('Y-m-d'));
         self::assertSame('12:00:50.235689', $mm->get('time')->format('H:i:s.u'));
@@ -396,18 +419,20 @@ class TypecastingTest extends TestCase
         $m->createEntity()->setMulti(array_diff_key($mm->get(), ['id' => true]))->save();
         $m->delete(1);
 
+        unset($dbData['types']['_types']);
         unset($dbData['types'][0]);
         $row['money'] = 8.2;
         $dbData['types'][2] = array_merge(['id' => 2], $row);
 
-        self::assertSame($dbData, $this->getDb());
+        self::{'assertEquals'}($dbData, $this->getDb());
     }
 
     public function testLoad(): void
     {
         $this->setDb([
             'types' => [
-                ['date' => '2013-02-20'],
+                '_types' => ['date' => 'date'],
+                ['date' => new \DateTime('2013-02-20')],
             ],
         ]);
 
@@ -422,7 +447,8 @@ class TypecastingTest extends TestCase
     {
         $this->setDb([
             'types' => [
-                ['date' => '2013-02-20'],
+                '_types' => ['date' => 'date'],
+                ['date' => new \DateTime('2013-02-20')],
             ],
         ]);
 
@@ -437,7 +463,8 @@ class TypecastingTest extends TestCase
     {
         $this->setDb([
             'types' => [
-                ['date' => '2013-02-20'],
+                '_types' => ['date' => 'date'],
+                ['date' => new \DateTime('2013-02-20')],
             ],
         ]);
 
@@ -461,45 +488,43 @@ class TypecastingTest extends TestCase
         self::assertTrue($m2->isLoaded());
     }
 
-    public function testTimestamp(): void
+    public function testDateTimeLoadFromString(): void
     {
-        $sqlTime = '2016-10-25 11:44:08';
         $this->setDb([
             'types' => [
-                ['date' => $sqlTime],
+                ['dt' => '2016-10-25 11:44:08'],
             ],
         ]);
 
         $m = new Model($this->db, ['table' => 'types']);
-        $m->addField('ts', ['actual' => 'date', 'type' => 'datetime']);
+        $m->addField('dt', ['type' => 'datetime']);
         $m = $m->loadOne();
 
-        // must respect 'actual'
-        self::assertNotNull($m->get('ts'));
+        self::{'assertEquals'}(new \DateTime('2016-10-25 11:44:08 UTC'), $m->get('dt'));
     }
 
-    public function testBadTimestamp(): void
+    public function testDateTimeLoadFromStringInvalidException(): void
     {
-        $sqlTime = '20blah16-10-25 11:44:08';
         $this->setDb([
             'types' => [
-                ['date' => $sqlTime],
+                ['dt' => '20blah16-10-25 11:44:08'],
             ],
         ]);
 
         $m = new Model($this->db, ['table' => 'types']);
-        $m->addField('ts', ['actual' => 'date', 'type' => 'datetime']);
+        $m->addField('dt', ['type' => 'datetime']);
 
         $this->expectException(Exception::class);
+        $this->expectExceptionMessage('Typecast parse error');
         $m->loadOne();
     }
 
-    public function testDirtyTimestamp(): void
+    public function testDirtyDateTime(): void
     {
-        $sqlTime = '2016-10-25 11:44:08';
         $this->setDb([
             'types' => [
-                ['date' => $sqlTime],
+                '_types' => ['date' => 'datetime'],
+                ['date' => new \DateTime('2016-10-25 11:44:08')],
             ],
         ]);
 
@@ -511,11 +536,12 @@ class TypecastingTest extends TestCase
         self::assertFalse($m->isDirty('ts'));
     }
 
-    public function testTimestampSave(): void
+    public function testDateSave(): void
     {
         $this->setDb([
             'types' => [
-                ['date' => ''],
+                '_types' => ['date' => 'date'],
+                ['date' => null],
             ],
         ]);
 
@@ -525,9 +551,9 @@ class TypecastingTest extends TestCase
         $m->set('ts', new \DateTime('2012-02-30'));
         $m->save();
 
-        self::assertSame([
+        self::assertSameExportUnordered([
             'types' => [
-                1 => ['id' => 1, 'date' => '2012-03-01'],
+                1 => ['id' => 1, 'date' => new \DateTime('2012-02-30 UTC')],
             ],
         ], $this->getDb());
     }
@@ -577,7 +603,8 @@ class TypecastingTest extends TestCase
         $sqlTimeNew = new \DateTime('12:34:56 GMT');
         $this->setDb([
             'types' => [
-                ['date' => $sqlTime->format('H:i:s')],
+                '_types' => ['date' => 'time'],
+                ['date' => $sqlTime],
             ],
         ]);
 
@@ -601,6 +628,7 @@ class TypecastingTest extends TestCase
         $sqlTimeNew = new \DateTime('12:34:56 GMT');
         $this->setDb([
             'types' => [
+                '_types' => ['date' => 'time'],
                 ['date' => null],
             ],
         ]);

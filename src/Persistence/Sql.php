@@ -24,8 +24,8 @@ use Doctrine\DBAL\Platforms\SQLServerPlatform;
 
 class Sql extends Persistence
 {
-    use Sql\BinaryTypeCompatibilityTypecastTrait;
-    use Sql\JsonTypeCompatibilityTypecastTrait;
+    use Sql\BinaryStringCompatibilityTypecastTrait;
+    use Sql\ExplicitCastCompatibilityTypecastTrait;
 
     public const HOOK_INIT_SELECT_QUERY = self::class . '@initSelectQuery';
     public const HOOK_BEFORE_INSERT_QUERY = self::class . '@beforeInsertQuery';
@@ -650,10 +650,10 @@ class Sql extends Persistence
         $value = parent::typecastSaveField($field, $value);
 
         if ($value !== null && !$value instanceof Expression) {
-            if ($this->binaryTypeIsEncodeNeeded($field->type)) {
-                $value = $this->binaryTypeValueEncode($value);
-            } elseif ($this->jsonTypeIsEncodeNeeded($field->type)) {
-                $value = $this->jsonTypeValueEncode($value);
+            if ($this->binaryStringIsEncodeNeeded($field->type)) {
+                $value = $this->binaryStringEncode($value);
+            } elseif ($this->explicitCastIsEncodeNeeded($field->type)) {
+                $value = $this->explicitCastEncode($field->type, $value);
             }
         }
 
@@ -663,11 +663,11 @@ class Sql extends Persistence
     #[\Override]
     public function typecastLoadField(Field $field, $value)
     {
-        if ($value !== null) {
-            if ($this->binaryTypeIsDecodeNeeded($field->type, $value)) {
-                $value = $this->binaryTypeValueDecode($value);
-            } elseif ($this->jsonTypeIsDecodeNeeded($field->type, $value)) {
-                $value = $this->jsonTypeValueDecode($value);
+        if (is_string($value)) {
+            if ($this->binaryStringIsEncodeNeeded($field->type)) { // always decode as never stored natively
+                $value = $this->binaryStringDecode($value);
+            } elseif ($this->explicitCastIsDecodeNeeded($field->type, $value)) {
+                $value = $this->explicitCastDecode($value);
             }
         }
 
@@ -683,7 +683,7 @@ class Sql extends Persistence
 
         // Oracle always converts empty string to null
         // https://stackoverflow.com/questions/13278773/null-vs-empty-string-in-oracle#13278879
-        if ($res === '' && $this->getDatabasePlatform() instanceof OraclePlatform && !$this->binaryTypeIsEncodeNeeded($field->type)) {
+        if ($res === '' && $this->getDatabasePlatform() instanceof OraclePlatform && !$this->binaryStringIsEncodeNeeded($field->type)) {
             return null;
         }
 
