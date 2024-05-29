@@ -548,9 +548,7 @@ abstract class Expression implements Expressionable, \ArrayAccess
 
             foreach ($params as $key => $val) {
                 if ($val === null) {
-                    // https://github.com/PHP-CS-Fixer/PHP-CS-Fixer/pull/8004#issuecomment-2136064035
-                    // $type = ParameterType::NULL;
-                    $type = constant(ParameterType::class . '::NULL');
+                    $type = ParameterType::NULL;
                 } elseif (is_bool($val)) {
                     $type = ParameterType::BOOLEAN;
                     if ($platform instanceof OraclePlatform) {
