@@ -147,7 +147,6 @@ class TypecastingTest extends TestCase
 
         $dbData = [
             'types' => [
-                '_types' => ['date' => 'date', 'datetime' => 'datetime', 'time' => 'time', 'decimal' => 'decimal', 'json' => 'json'],
                 1 => $row = [
                     'id' => 1,
                     'string' => '',
@@ -156,7 +155,9 @@ class TypecastingTest extends TestCase
                     'datetime' => '',
                     'time' => '',
                     'boolean' => '',
+                    'smallint' => '',
                     'integer' => '',
+                    'bigint' => '',
                     'money' => '',
                     'float' => '',
                     'decimal' => '',
@@ -177,7 +178,9 @@ class TypecastingTest extends TestCase
         $m->addField('datetime', ['type' => 'datetime']);
         $m->addField('time', ['type' => 'time']);
         $m->addField('boolean', ['type' => 'boolean']);
+        $m->addField('smallint', ['type' => 'smallint']);
         $m->addField('integer', ['type' => 'integer']);
+        $m->addField('bigint', ['type' => 'bigint']);
         $m->addField('money', ['type' => 'atk4_money']);
         $m->addField('float', ['type' => 'float']);
         $m->addField('decimal', ['type' => 'decimal']);
@@ -192,7 +195,9 @@ class TypecastingTest extends TestCase
         self::assertNull($mm->get('datetime'));
         self::assertNull($mm->get('time'));
         self::assertNull($mm->get('boolean'));
+        self::assertNull($mm->get('smallint'));
         self::assertNull($mm->get('integer'));
+        self::assertNull($mm->get('bigint'));
         self::assertNull($mm->get('money'));
         self::assertNull($mm->get('float'));
         self::assertNull($mm->get('decimal'));
@@ -201,7 +206,8 @@ class TypecastingTest extends TestCase
         self::assertNull($mm->get('local-object'));
 
         unset($row['id']);
-        unset($row['local-object']);
+        $row['json'] = null;
+        $row['local-object'] = null;
         $mm->setMulti($row);
 
         self::assertSame($fixEmptyStringForOracleFx(''), $mm->get('string'));
@@ -210,7 +216,9 @@ class TypecastingTest extends TestCase
         self::assertNull($mm->get('datetime'));
         self::assertNull($mm->get('time'));
         self::assertNull($mm->get('boolean'));
+        self::assertNull($mm->get('smallint'));
         self::assertNull($mm->get('integer'));
+        self::assertNull($mm->get('bigint'));
         self::assertNull($mm->get('money'));
         self::assertNull($mm->get('float'));
         self::assertNull($mm->get('decimal'));
@@ -222,13 +230,7 @@ class TypecastingTest extends TestCase
 
         $mm->save();
 
-        unset($dbData['types']['_types']);
         $dbData['types'][1]['id'] = '1';
-        $dbData['types'][1]['date'] = null;
-        $dbData['types'][1]['datetime'] = null;
-        $dbData['types'][1]['time'] = null;
-        $dbData['types'][1]['decimal'] = null;
-        $dbData['types'][1]['json'] = null;
         $dbData['types'] = [$dbData['types'][1]];
         self::assertSame($fixEmptyStringForOracleFx($dbData['types']), $m->export(null, null, false));
 
@@ -241,7 +243,9 @@ class TypecastingTest extends TestCase
             'datetime' => null,
             'time' => null,
             'boolean' => null,
+            'smallint' => null,
             'integer' => null,
+            'bigint' => null,
             'money' => null,
             'float' => null,
             'decimal' => null,
