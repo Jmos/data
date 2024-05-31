@@ -24,6 +24,8 @@ abstract class Expression implements Expressionable, \ArrayAccess
 {
     use DiContainerTrait;
 
+    private static ?SqlFormatter $debugFormatter = null;
+
     /** "[]" in template, escape as parameter */
     protected const ESCAPE_PARAM = 'param';
     /** "{}" in template, escape as identifier */
@@ -434,11 +436,14 @@ abstract class Expression implements Expressionable, \ArrayAccess
                 return $k;
             }, $sql);
 
-            $sqlFormatter = new SqlFormatter(new NullHighlighter());
-            $sql = $sqlFormatter->format($sql);
+            if (self::$debugFormatter === null) {
+                self::$debugFormatter = new SqlFormatter(new NullHighlighter());
+            }
+
+            $sql = self::$debugFormatter->format($sql);
 
             // fix string literal tokenize 2/2
-            $sql = str_replace(array_keys($origStringTokens), $origStringTokens, $sqlFormatter->format($sql));
+            $sql = str_replace(array_keys($origStringTokens), $origStringTokens, $sql);
         }
 
         return $sql;
