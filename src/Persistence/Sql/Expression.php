@@ -14,6 +14,8 @@ use Doctrine\DBAL\Platforms\PostgreSQLPlatform;
 use Doctrine\DBAL\Platforms\SQLServerPlatform;
 use Doctrine\DBAL\Result as DbalResult;
 use Doctrine\DBAL\Statement;
+use Doctrine\SqlFormatter\NullHighlighter;
+use Doctrine\SqlFormatter\SqlFormatter;
 
 /**
  * @phpstan-implements \ArrayAccess<int|string, mixed>
@@ -21,6 +23,8 @@ use Doctrine\DBAL\Statement;
 abstract class Expression implements Expressionable, \ArrayAccess
 {
     use DiContainerTrait;
+
+    private static ?SqlFormatter $debugFormatter = null;
 
     /** "[]" in template, escape as parameter */
     protected const ESCAPE_PARAM = 'param';
@@ -414,17 +418,9 @@ abstract class Expression implements Expressionable, \ArrayAccess
             $sql
         );
 
-        if (class_exists(\SqlFormatter::class)) { // requires optional "jdorn/sql-formatter" package
-            \Closure::bind(static function () {
-                // fix latest/1.2.17 release from 2014-01-12
-                if (end(\SqlFormatter::$reserved_toplevel) === 'INTERSECT') {
-                    \SqlFormatter::$reserved_toplevel[] = 'OFFSET';
-                    \SqlFormatter::$reserved_toplevel[] = 'FETCH';
-                }
-            }, null, \SqlFormatter::class)();
-
-            // fix string literal tokenize
-            // https://github.com/jdorn/sql-formatter/blob/v1.2.17/lib/SqlFormatter.php#L339
+        if (class_exists(SqlFormatter::class)) { // requires optional "doctrine/sql-formatter" package
+            // fix string literal tokenize 1/2
+            // https://github.com/doctrine/sql-formatter/blob/1.4.0/src/Tokenizer.php#L974
             $origStringTokens = [];
             $sql = preg_replace_callback('~' . self::QUOTED_TOKEN_REGEX . '~', static function ($matches) use (&$origStringTokens) {
                 $firstChar = substr($matches[0], 0, 1);
@@ -434,14 +430,20 @@ abstract class Expression implements Expressionable, \ArrayAccess
 
                 $k = $firstChar
                     . 'atk4' . "\xff" . str_pad((string) count($origStringTokens), 5, '0', \STR_PAD_LEFT)
-                    . $firstChar;
+                    . ($firstChar === '[' ? ']' : $firstChar);
                 $origStringTokens[$k] = $matches[0];
 
                 return $k;
             }, $sql);
 
-            $sql = str_replace(array_keys($origStringTokens), $origStringTokens, \SqlFormatter::format($sql, false));
-            $sql = preg_replace('~' . self::QUOTED_TOKEN_REGEX . '\K| +(?=\n)|(?<=:) (?=\w)~', '', $sql);
+            if (self::$debugFormatter === null) {
+                self::$debugFormatter = new SqlFormatter(new NullHighlighter());
+            }
+
+            $sql = self::$debugFormatter->format($sql);
+
+            // fix string literal tokenize 2/2
+            $sql = str_replace(array_keys($origStringTokens), $origStringTokens, $sql);
         }
 
         return $sql;
@@ -567,9 +569,11 @@ abstract class Expression implements Expressionable, \ArrayAccess
 
                     if ($platform instanceof PostgreSQLPlatform || $platform instanceof SQLServerPlatform) {
                         $dummyPersistence = (new \ReflectionClass(Persistence\Sql::class))->newInstanceWithoutConstructor();
-                        if (\Closure::bind(static fn () => $dummyPersistence->binaryTypeValueIsEncoded($val), null, Persistence\Sql::class)()) {
-                            $val = \Closure::bind(static fn () => $dummyPersistence->binaryTypeValueDecode($val), null, Persistence\Sql::class)();
-                            $type = ParameterType::BINARY;
+                        if (\Closure::bind(static fn () => $dummyPersistence->explicitCastIsEncoded($val), null, Persistence\Sql::class)()) {
+                            if (\Closure::bind(static fn () => $dummyPersistence->explicitCastIsEncodedBinary($val), null, Persistence\Sql::class)()) {
+                                $type = ParameterType::BINARY;
+                            }
+                            $val = \Closure::bind(static fn () => $dummyPersistence->explicitCastDecode($val), null, Persistence\Sql::class)();
                         }
                     }
                 } elseif (is_resource($val)) {

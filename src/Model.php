@@ -384,7 +384,11 @@ class Model implements \IteratorAggregate
         $this->_init();
 
         if ($this->idField) {
-            $this->addField($this->idField, ['type' => 'integer', 'required' => true, 'system' => true]);
+            if (!$this->hasField($this->idField)) {
+                $this->addField($this->idField, ['type' => 'bigint']);
+            }
+            $this->getIdField()->required = true;
+            $this->getIdField()->system = true;
 
             $this->initEntityIdHooks();
 
@@ -1662,8 +1666,8 @@ class Model implements \IteratorAggregate
         $entity = $this->createEntity();
 
         $hasRefs = false;
-        foreach ($row as $v) {
-            if (is_array($v)) {
+        foreach ($row as $k => $v) {
+            if (is_array($v) && $this->hasReference($k)) {
                 $hasRefs = true;
 
                 break;

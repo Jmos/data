@@ -94,13 +94,13 @@ class RandomTest extends TestCase
     {
         $this->setDb([
             'user' => [
-                '_' => ['name' => 'John', 'salary' => 29],
+                '_types' => ['name' => 'string', 'salary' => 'integer'],
             ],
         ]);
 
         $m = new Model($this->db, ['table' => 'user']);
         $m->addField('name');
-        $m->addField('salary', ['default' => 10]);
+        $m->addField('salary', ['type' => 'integer', 'default' => 10]);
 
         $m->import([['name' => 'Peter'], ['name' => 'Steve', 'salary' => 30]]);
         $m->insert(['name' => 'Sue']);
@@ -108,10 +108,10 @@ class RandomTest extends TestCase
 
         self::assertSame([
             'user' => [
-                1 => ['id' => 1, 'name' => 'Peter', 'salary' => '10'],
-                ['id' => 2, 'name' => 'Steve', 'salary' => '30'],
-                ['id' => 3, 'name' => 'Sue', 'salary' => '10'],
-                ['id' => 4, 'name' => 'John', 'salary' => '40'],
+                1 => ['id' => 1, 'name' => 'Peter', 'salary' => 10],
+                ['id' => 2, 'name' => 'Steve', 'salary' => 30],
+                ['id' => 3, 'name' => 'Sue', 'salary' => 10],
+                ['id' => 4, 'name' => 'John', 'salary' => 40],
             ],
         ], $this->getDb());
     }
