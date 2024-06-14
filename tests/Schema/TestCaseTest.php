@@ -89,6 +89,7 @@ class TestCaseTest extends TestCase
                       catch if ERROR_NUMBER() = 544 begin
                         set
                           IDENTITY_INSERT `t` on;
+
                         begin
                           try insert into `t` (
                             `name`, `file`, `int`,
@@ -100,12 +101,14 @@ class TestCaseTest extends TestCase
                               'Ewa', 'x  y', 1, 1.0,
                               1, NULL, '2020-10-20', '["z"]'
                             );
+
                           set
                             IDENTITY_INSERT `t` off;
                         end try begin
                           catch
                           set
                             IDENTITY_INSERT `t` off;
+
                           throw;
                         end catch
                       end
