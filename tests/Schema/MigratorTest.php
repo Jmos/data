@@ -314,7 +314,14 @@ class MigratorTest extends TestCase
         $user->createEntity()
             ->save(['name' => 'john', 'is_admin' => true, 'notes' => 'some long notes']);
         self::assertSame([
-            ['id' => 1, 'name' => 'john', 'password' => null, 'is_admin' => true, 'notes' => 'some long notes', 'main_role_id' => null],
+            [
+                'id' => 1,
+                'name' => 'john',
+                'password' => null,
+                'is_admin' => true,
+                'notes' => 'some long notes',
+                'main_role_id' => null,
+            ],
         ], $user->export());
     }
 
@@ -400,6 +407,33 @@ class MigratorTest extends TestCase
         self::assertTrue($model->issetPersistence());
         self::assertSame(['id', 'a'], array_keys($model->getFields()));
     }
+
+    public function testJoinFieldsAreNotCreated(): void
+    {
+        $model = new TestUserWithJoin($this->db);
+        $migrator = $this->createMigrator($model);
+        self::assertSame([
+            'id',
+            'name',
+            'password',
+            'is_admin',
+            'notes',
+            'main_role_id',
+            'role_id',
+        ], array_keys($migrator->table->getColumns()));
+        $migrator->create();
+
+        $model = $this->createMigrator()->introspectTableToModel('user');
+        self::assertSame([
+            'id',
+            'name',
+            'password',
+            'is_admin',
+            'notes',
+            'main_role_id',
+            'role_id',
+        ], array_keys($model->getFields()));
+    }
 }
 
 class TestUser extends Model
@@ -431,5 +465,17 @@ class TestRole extends Model
 
         $this->addField('name');
         $this->hasMany('Users', ['model' => [TestUser::class], 'ourField' => 'id', 'theirField' => 'main_role_id']);
+    }
+}
+
+class TestUserWithJoin extends TestUser
+{
+    #[\Override]
+    protected function init(): void
+    {
+        parent::init();
+
+        $leftJoin = $this->leftJoin('role', ['masterField' => 'role_id']);
+        $leftJoin->addField('role_name');
     }
 }
